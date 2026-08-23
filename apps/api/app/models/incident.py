@@ -25,4 +25,3 @@ class Incident(Base):
     reporter = relationship("User", foreign_keys=[reporter_id])
     handled_by = relationship("User", foreign_keys=[handled_by_id])
     updates = relationship("IncidentUpdate", back_populates="incident", cascade="all, delete-orphan")
-

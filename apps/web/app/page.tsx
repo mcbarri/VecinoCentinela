@@ -17,6 +17,11 @@ export default function HomePage() {
           </article>
         ))}
       </section>
+      <section style={{ marginTop: 24 }}>
+        <a href="/login" style={{ display: "inline-block", background: "#0f2f57", color: "white", padding: "14px 18px", borderRadius: 12, textDecoration: "none" }}>
+          Entrar a la plataforma
+        </a>
+      </section>
     </main>
   );
 }

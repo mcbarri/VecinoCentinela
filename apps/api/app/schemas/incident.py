@@ -15,3 +15,11 @@ class IncidentRead(IncidentCreate):
     id: int
     status: str
 
+
+class IncidentUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    category: str | None = None
+    severity: str | None = None
+    status: str | None = None
+    handled_by_id: int | None = None

@@ -9,5 +9,10 @@ class UserCreate(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
 
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str

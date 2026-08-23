@@ -25,3 +25,6 @@ class UserUpdate(BaseModel):
     is_active: bool | None = None
     is_blocked: bool | None = None
 
+
+class UserListItem(UserRead):
+    role_name: str

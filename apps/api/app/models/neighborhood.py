@@ -13,6 +13,5 @@ class Neighborhood(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     users = relationship("User", back_populates="neighborhood")
-    sectors = relationship("Sector", back_populates="neighborhood")
+    sectors = relationship("Sector", back_populates="neighborhood", cascade="all, delete-orphan")
     incidents = relationship("Incident", back_populates="neighborhood")
-

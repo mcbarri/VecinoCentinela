@@ -9,3 +9,7 @@ class NeighborhoodCreate(BaseModel):
 class NeighborhoodRead(NeighborhoodCreate):
     id: int
 
+
+class NeighborhoodUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None

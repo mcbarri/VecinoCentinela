@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -11,6 +11,7 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     full_name = Column(String(255), nullable=True)
     hashed_password = Column(String(255), nullable=False)
+    hashed_refresh_token = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     is_blocked = Column(Boolean, default=False, nullable=False)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
@@ -19,4 +20,4 @@ class User(Base):
 
     role = relationship("Role")
     neighborhood = relationship("Neighborhood", back_populates="users")
-
+    sectors = relationship("Sector", secondary="user_sectors", back_populates="users")

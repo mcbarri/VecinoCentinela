@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_db
+from app.core.security import create_access_token, create_refresh_token, hash_password, verify_password
 from app.models.user import User
-from app.schemas.auth import Token
+from app.schemas.auth import LoginRequest, Token
 from app.schemas.user import UserCreate
-from app.services.security import create_access_token, hash_password, verify_password
 
 router = APIRouter()
 
@@ -29,10 +29,11 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=Token)
-def login(payload: dict, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.get("email")).first()
-    if not user or not verify_password(payload.get("password", ""), user.hashed_password):
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales inválidas")
-    token = create_access_token(subject=str(user.id))
-    return Token(access_token=token)
-
+    return Token(
+        access_token=create_access_token(subject=str(user.id)),
+        refresh_token=create_refresh_token(subject=str(user.id)),
+    )
