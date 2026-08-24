@@ -383,7 +383,7 @@ export default function DashboardClient() {
             </div>
           )}
           <button onClick={() => router.push("/mapa")} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "#0f2f57", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
-            🗺️ Mapa en Vivo
+            🗺️ VIGILAR VECINDARIO
           </button>
           <button onClick={logout} style={{ padding: "10px 16px", borderRadius: 10, border: "1px solid #fecaca", background: "#fff5f5", color: "#b91c1c", cursor: "pointer", fontWeight: 600 }}>
             🚪 Cerrar sesión
