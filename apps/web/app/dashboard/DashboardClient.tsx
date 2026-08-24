@@ -182,6 +182,11 @@ export default function DashboardClient() {
   };
 
   const saveUser = async () => {
+    if (!uform.email.trim() || !uform.password) {
+      alert("Email y Contraseña son obligatorios");
+      setSaving(false);
+      return;
+    }
     setSaving(true);
     try {
       await api("/users", {
@@ -219,6 +224,11 @@ export default function DashboardClient() {
   };
 
   const saveIncident = async () => {
+    if (!iform.title.trim() || !iform.category.trim() || !iform.neighborhood_id) {
+      alert("Completa Título, Categoría y selecciona un Vecindario");
+      setSaving(false);
+      return;
+    }
     setSaving(true);
     try {
       await api("/incidents", {
@@ -309,8 +319,13 @@ export default function DashboardClient() {
             <option value="29">Líder</option>
             <option value="28">Super Admin</option>
           </select>
-          <label style={{ fontSize: 13, color: "#334155" }}>Vecindario (ID)</label>
-          <input style={fieldStyle} value={uform.neighborhood_id} onChange={(e) => setUform({ ...uform, neighborhood_id: e.target.value })} placeholder="Ej: 10" />
+          <label style={{ fontSize: 13, color: "#334155" }}>Vecindario</label>
+          <select style={fieldStyle} value={uform.neighborhood_id} onChange={(e) => setUform({ ...uform, neighborhood_id: e.target.value })}>
+            <option value="">— Sin vecindario —</option>
+            {neighborhoods.map((nb) => (
+              <option key={nb.id} value={nb.id}>{nb.name}</option>
+            ))}
+          </select>
         </Modal>
       )}
 
@@ -329,8 +344,13 @@ export default function DashboardClient() {
             <option value="alta">Alta</option>
             <option value="critica">Crítica</option>
           </select>
-          <label style={{ fontSize: 13, color: "#334155" }}>Vecindario (ID) *</label>
-          <input style={fieldStyle} value={iform.neighborhood_id} onChange={(e) => setIform({ ...iform, neighborhood_id: e.target.value })} placeholder="Ej: 10" />
+          <label style={{ fontSize: 13, color: "#334155" }}>Vecindario *</label>
+          <select style={fieldStyle} value={iform.neighborhood_id} onChange={(e) => setIform({ ...iform, neighborhood_id: e.target.value })}>
+            <option value="">— Selecciona —</option>
+            {neighborhoods.map((nb) => (
+              <option key={nb.id} value={nb.id}>{nb.name}</option>
+            ))}
+          </select>
         </Modal>
       )}
     </main>
