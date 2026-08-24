@@ -88,10 +88,10 @@ def list_locations(
     Así el pin desaparece del mapa cuando el usuario se desconecta,
     igual que desaparece de la tabla de usuarios en verde.
     """
-    from datetime import timedelta
+    from datetime import datetime, timedelta, timezone
 
     ONLINE_WINDOW = timedelta(seconds=90)
-    cutoff = datetime.utcnow() - ONLINE_WINDOW
+    cutoff = datetime.now(timezone.utc) - ONLINE_WINDOW
     rows = db.query(UserLocation).all()
     extra = {}
     for loc in rows:
