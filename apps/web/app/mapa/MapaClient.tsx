@@ -384,7 +384,6 @@ export default function MapaClient() {
         }
       };
       rec.start(300); // chunks cada 300ms
-      setIsTalking(true);
       setWalkieState("talking");
     } catch (err: any) {
       alert("Microfono no disponible: " + err.message);
@@ -394,7 +393,6 @@ export default function MapaClient() {
   const stopTalk = () => {
     mediaRecRef.current?.stop();
     audioChunksRef.current = [];
-    setIsTalking(false);
     // parar streams
     mediaRecRef.current?.stream?.getTracks().forEach((t) => t.stop());
   };
