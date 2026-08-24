@@ -212,7 +212,7 @@ export default function MapaClient() {
         // Etiqueta fija que tapa el hueco del atributo: enlace hecho a propósito
         // para no salirse del mapa.
         L.control.attribution({ prefix: false }).addAttribution(
-          '<span style="font-size:10px; font-weight:700; color:#111827;">MacBarrIn LLC @USA2026</span>'
+          '<span style="font-size:10px; font-weight:700; color:#111827;">McBarri Inc LLC US @2026</span>'
         ).addTo(map);
         leafletRef.current = map;
         routeLayerRef.current = L.layerGroup().addTo(map);
