@@ -37,6 +37,10 @@ export default function MapaClient() {
   const incidentMarkersRef = useRef<Record<string, any>>({});
   const routeLayerRef = useRef<any>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
+  // Handler de audio regrabable: al crear/reconectar el WS se asigna a onmessage
+  // para que el walkie entrante SIEMPRE se maneje, sin depender de otro efecto
+  // (evita perder el listener si el WebSocket se recrea).
+  const audioHandlerRef = useRef<(b64: string) => void>(() => {});
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<string[]>([]);
@@ -343,14 +347,18 @@ export default function MapaClient() {
     };
     loadIncidents();
 
-    // WebSocket para actualizaciones en vivo
+    // WebSocket para actualizaciones en vivo + walkie (audio) entrante.
+    // El audio se maneja aqui mismo via audioHandlerRef para evitar perder el
+    // listener cuando el WebSocket se recrea (token refresh / re-mount).
     const wsUrl = API_BASE.replace("https://", "wss://").replace("http://", "ws://").replace("/api/v1", "/api/v1/realtime/ws");
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data);
-        if (msg.type === "update") {
+        if (msg.type === "audio") {
+          audioHandlerRef.current(msg.chunk);
+        } else if (msg.type === "update") {
           load();
           loadIncidents();
         }
@@ -497,19 +505,11 @@ export default function MapaClient() {
     }, 2000);
   }, []);
 
-  // Interceptar mensajes de audio en el WS
+  // Mantener el handler de audio del walkie sincronizado en un ref para que el
+  // efecto que crea el WebSocket pueda usarlo sin problemas de orden/ciclo.
   useEffect(() => {
-    const ws = wsRef.current;
-    if (!ws) return;
-    const handler = (ev: any) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === "audio") playAudioChunk(msg.chunk);
-      } catch (e) {}
-    };
-    ws.addEventListener("message", handler);
-    return () => ws.removeEventListener("message", handler);
-  }, [mapInit, playAudioChunk]);
+    audioHandlerRef.current = playAudioChunk;
+  }, [playAudioChunk]);
 
   // Botón walkie flotante
   const pttLabel =
