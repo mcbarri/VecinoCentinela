@@ -74,6 +74,9 @@ export default function MapaClient() {
 
   // Estados walkie (push-to-talk): off | armed | talking
   const [walkieState, setWalkieState] = useState<"off" | "armed" | "talking">("off");
+  // Quién está transmitiendo AHORA en el canal (lo ven todos). false = nadie habla,
+  // true = alguien tiene el botón presionado y enviando voz. Lo pinta la bocinita.
+  const [transmitting, setTransmitting] = useState(false);
   const pressStartRef = useRef(0);
   const pressTimerRef = useRef<any>(null);
 
@@ -370,6 +373,9 @@ export default function MapaClient() {
         const msg = JSON.parse(ev.data);
         if (msg.type === "audio") {
           audioHandlerRef.current(msg.chunk);
+        } else if (msg.type === "transmit") {
+          // Alguien empezó/soltó el push-to-talk: prende/apaga la bocinita.
+          setTransmitting(msg.status === "start");
         } else if (msg.type === "update") {
           load();
           loadIncidents();
@@ -430,6 +436,11 @@ export default function MapaClient() {
       };
       rec.start(300); // chunks cada 300ms
       setWalkieState("talking");
+      // Avisar a todos los que están en el mapa que alguien está transmitiendo,
+      // para que la bocinita se ponga verde mientras dura el push-to-talk.
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "transmit", status: "start" }));
+      }
     } catch (err: any) {
       alert("Microfono no disponible: " + err.message);
     }
@@ -440,6 +451,10 @@ export default function MapaClient() {
     audioChunksRef.current = [];
     // parar streams
     mediaRecRef.current?.stream?.getTracks().forEach((t) => t.stop());
+    // Avisar que se dejó de transmitir: la bocinita vuelve a gris en los demás.
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "transmit", status: "stop" }));
+    }
   };
 
   // ── PUSH-TO-TALK (tap vs hold) ──
@@ -677,18 +692,31 @@ export default function MapaClient() {
         </p>
       </div>
 
-      {/* Botón walkie flotante — push-to-talk, fijo a la derecha */}
-      <button
-        style={{ ...styles.pttBtn, background: pttBg }}
-        onPointerDown={pttPress}
-        onPointerUp={pttRelease}
-        onPointerLeave={() => { if (walkieStateRef.current === "talking") { pressTimerRef.current && clearTimeout(pressTimerRef.current); stopTalk(); setWalkieState("armed"); } }}
-        onContextMenu={(e) => e.preventDefault()}
-      >
-        <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, opacity: 0.9 }}>{pttLabel.split(" ")[0]}</span>
-        <span style={{ fontSize: 19, marginTop: 4 }}>{pttLabel.split(" ").slice(1).join(" ")}</span>
-        <span style={{ fontSize: 10, marginTop: 8, opacity: 0.75 }}>{pttHint}</span>
-      </button>
+      {/* Walkie flotante (derecha): la bocinita de arriba indica si alguien está
+          transmitiendo AHORA (verde = hay voz en el aire, gris = canal en silencio). */}
+      <div style={{ position: "fixed" as const, right: 24, bottom: 28, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, zIndex: 1000 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", pointerEvents: "none" as const }}>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={transmitting ? "#16a34a" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ filter: transmitting ? "drop-shadow(0 0 6px rgba(22,163,74,0.8))" : "none", transition: "stroke 0.2s" }}>
+            <path d="M11 5 6 9H2v6h4l5 4V5z" />
+            <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+            <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+          </svg>
+          <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.4, color: transmitting ? "#16a34a" : "#94a3b8", textTransform: "uppercase" }}>
+            {transmitting ? "Transmitiendo…" : "En espera"}
+          </span>
+        </div>
+        <button
+          style={{ ...styles.pttBtn, background: pttBg }}
+          onPointerDown={pttPress}
+          onPointerUp={pttRelease}
+          onPointerLeave={() => { if (walkieStateRef.current === "talking") { pressTimerRef.current && clearTimeout(pressTimerRef.current); stopTalk(); setWalkieState("armed"); } }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, opacity: 0.9 }}>{pttLabel.split(" ")[0]}</span>
+          <span style={{ fontSize: 19, marginTop: 4 }}>{pttLabel.split(" ").slice(1).join(" ")}</span>
+          <span style={{ fontSize: 10, marginTop: 8, opacity: 0.75 }}>{pttHint}</span>
+        </button>
+      </div>
 
       <div style={styles.panel}>
         <h3 style={styles.panelTitle}>🛤️ Ruta de patrulla</h3>
