@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     allowed_origins: list[str] = ["http://localhost:3000"]
     superadmin_email: str = "mcbarri.gt@gmail.com"
-    superadmin_password: str = "123Admin+2026!"
+    superadmin_password: str = "change-this-in-development"
 
     class Config:
         env_file = ".env"
