@@ -19,6 +19,7 @@ interface UsersRow {
   avatar_url?: string | null;
   photo_required?: boolean;
   code?: string | null;
+  is_leader_mayor?: boolean;
 }
 interface NeighborhoodRow {
   id: number;
@@ -116,7 +117,7 @@ function Modal({ title, onClose, children, onSave, saving }: {
 export default function DashboardClient() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
-  const [me, setMe] = useState<{ full_name?: string | null; role?: string | null; email?: string | null; phone?: string | null; avatar_url?: string | null; onboarding_complete?: boolean; neighborhood_name?: string | null; photo_required?: boolean; code?: string | null } | null>(null);
+  const [me, setMe] = useState<{ full_name?: string | null; role?: string | null; email?: string | null; phone?: string | null; avatar_url?: string | null; onboarding_complete?: boolean; neighborhood_name?: string | null; photo_required?: boolean; code?: string | null; is_leader_mayor?: boolean } | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [users, setUsers] = useState<UsersRow[]>([]);
   const [neighborhoods, setNeighborhoods] = useState<NeighborhoodRow[]>([]);
@@ -378,6 +379,7 @@ export default function DashboardClient() {
               <div style={{ lineHeight: 1.1 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, color: "#0f2f57" }}>{me.full_name} {me.code ? <span style={{ color: "#0f766e", fontWeight: 700 }}>· {me.code}</span> : null}</div>
                 <div style={{ fontSize: 12, color: "#64748b" }}>{me.role === "superadmin" ? "Súper administrador" : me.role === "leader" ? "Líder" : me.role === "sentinel" ? "Centinela" : me.role}</div>
+                {me.is_leader_mayor && <div style={{ color: "#d40808", fontWeight: 700, fontSize: 11, letterSpacing: 1 }}>👑 LIDER MAYOR</div>}
               </div>
               <span style={{ marginLeft: 4, color: "#94a3b8" }}>⚙️</span>
             </div>
@@ -401,7 +403,7 @@ export default function DashboardClient() {
       </section>
 
       <section style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {isSuperadmin && (
+        {(isSuperadmin || me?.is_leader_mayor) && (
           <button onClick={() => setShowNbh(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#0f2f57", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nuevo Vecindario</button>
         )}
         {(isSuperadmin || isLeader) && (
@@ -542,7 +544,12 @@ export default function DashboardClient() {
         <Modal title={`Ficha de usuario: ${editUser.full_name || editUser.email}`} onClose={() => setEditUser(null)} onSave={saveEditUser} saving={saving}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
             <Avatar url={editUser.avatar_url} name={editUser.full_name} size={44} />
-            <div style={{ color: "#64748b", fontSize: 13 }}>{editUser.email}</div>
+            <div>
+              <div style={{ color: "#64748b", fontSize: 13 }}>{editUser.email}</div>
+              {editUser.is_leader_mayor && (
+                <div style={{ color: "#d40808", fontWeight: 700, fontSize: 12, letterSpacing: 1, marginTop: 2 }}>👑 LIDER MAYOR</div>
+              )}
+            </div>
           </div>
           <label style={{ fontSize: 13, color: "#334155" }}>Nombre completo</label>
           <input style={fieldStyle} value={editUser.full_name ?? ""} onChange={(e) => setEditUser({ ...editUser, full_name: e.target.value })} />

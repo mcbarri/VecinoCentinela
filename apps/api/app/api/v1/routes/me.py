@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.auth import get_current_user
 from app.api.v1.deps import get_db
+from app.api.v1.mayor import promote_leader_mayor
 from app.models.user import User
 
 router = APIRouter()
@@ -24,6 +25,7 @@ def read_me(current_user: User = Depends(get_current_user)):
         "full_name": current_user.full_name,
         "role": current_user.role.name,
         "code": current_user.code,
+        "is_leader_mayor": current_user.is_leader_mayor,
         "phone": current_user.phone,
         "avatar_url": current_user.avatar_url,
         "photo_required": current_user.photo_required,
@@ -64,5 +66,9 @@ def deactivate_me(
         raise HTTPException(status_code=403, detail="El administrador no puede darse de baja")
     current_user.is_active = False
     current_user.is_blocked = True
+    # Si era Líder Mayor, el cargo pasa al siguiente líder (L02) o al Centinela C01
+    if current_user.is_leader_mayor and current_user.neighborhood_id:
+        current_user.is_leader_mayor = False
+        promote_leader_mayor(db, current_user.neighborhood_id)
     db.commit()
     return {"ok": True}

@@ -21,6 +21,7 @@ class User(Base):
     photo_required = Column(Boolean, default=False, nullable=False)
     onboarding_complete = Column(Boolean, default=False, nullable=False)
     code = Column(String(10), nullable=True, unique=False)
+    is_leader_mayor = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

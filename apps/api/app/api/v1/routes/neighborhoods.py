@@ -29,7 +29,11 @@ def create_neighborhood(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_roles(current_user, {"superadmin"})
+    # Solo superadmin o el Líder Mayor pueden crear vecindarios
+    if current_user.role.name == "superadmin" or current_user.is_leader_mayor:
+        pass
+    else:
+        raise HTTPException(status_code=403, detail="No autorizado")
     if db.query(Neighborhood).filter(Neighborhood.name == payload.name).first():
         raise HTTPException(status_code=400, detail="Vecindario ya existe")
     neighborhood = Neighborhood(name=payload.name, description=payload.description)

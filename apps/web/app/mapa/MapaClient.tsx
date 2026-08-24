@@ -376,6 +376,14 @@ export default function MapaClient() {
       {error && <div style={{ background: "#fecaca", color: "#991b1b", padding: 10, borderRadius: 8, marginBottom: 12 }}>⚠️ {error}</div>}
 
       <div style={styles.mapWrap}>
+        <div style={{
+          position: "absolute" as const, top: 8, left: 0, right: 0, zIndex: 1000,
+          textAlign: "center" as const, pointerEvents: "none" as const,
+        }}>
+          <span style={{ color: "#d40808", fontWeight: 800, fontSize: 13, letterSpacing: 0.5,
+            background: "rgba(255,255,255,0.85)", padding: "3px 12px", borderRadius: 10,
+            boxShadow: "0 1px 4px rgba(0,0,0,0.2)" }}>McBarri Inc LLC @ 2026</span>
+        </div>
         <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
         {!mapInit && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#e2e8f0", color: "#475569" }}>Cargando mapa…</div>}
       </div>

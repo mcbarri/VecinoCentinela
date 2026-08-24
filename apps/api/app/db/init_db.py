@@ -118,6 +118,7 @@ def ensure_profile_columns(db: Session) -> None:
         ("photo_required", "BOOLEAN DEFAULT FALSE NOT NULL"),
         ("onboarding_complete", "BOOLEAN DEFAULT FALSE NOT NULL"),
         ("code", "VARCHAR(10)"),
+        ("is_leader_mayor", "BOOLEAN DEFAULT FALSE NOT NULL"),
     ]
     for col, ddl in additions:
         db.execute(

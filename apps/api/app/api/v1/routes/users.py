@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.auth import get_current_user
 from app.api.v1.deps import get_db
+from app.api.v1.mayor import is_first_leader, promote_leader_mayor
 from app.core.security import hash_password
 from app.models.user import User
 from app.models.role import Role
@@ -68,6 +69,13 @@ def _assert_can_assign(actor: User, role_id: int) -> None:
         )
 
 
+def _reassign_mayor_if_needed(db: Session, deactivated_user: User) -> None:
+    """Si el usuario dado de baja era Líder Mayor, promueve al siguiente (L02 o Centinela C01)."""
+    if deactivated_user.is_leader_mayor and deactivated_user.neighborhood_id:
+        deactivated_user.is_leader_mayor = False
+        promote_leader_mayor(db, deactivated_user.neighborhood_id)
+
+
 @router.get("")
 def list_users(
     db: Session = Depends(get_db),
@@ -90,6 +98,7 @@ def list_users(
             "is_active": user.is_active,
             "is_blocked": user.is_blocked,
             "code": user.code,
+            "is_leader_mayor": user.is_leader_mayor,
             "phone": user.phone,
             "avatar_url": user.avatar_url,
             "photo_required": user.photo_required,
@@ -131,10 +140,13 @@ def create_user(
     # Asignar código de identificación automático (fijo, no editable):
     # usa el menor hueco libre de su rol (L para líder, C para centinela).
     user.code = _next_code(db, _role_name_by_id(db, payload.role_id))
+    # Líder Mayor: el primer líder creado del vecindario
+    if payload.role_id == 29 and is_first_leader(db, neighborhood_id):
+        user.is_leader_mayor = True
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"id": user.id, "email": user.email, "code": user.code}
+    return {"id": user.id, "email": user.email, "code": user.code, "is_leader_mayor": user.is_leader_mayor}
 
 
 @router.patch("/{user_id}", response_model=dict)
@@ -172,6 +184,9 @@ def update_user(
         _assert_can_assign(current_user, data["role_id"])
     # El código de identificación es FIJO: nunca se puede cambiar ni reasignar.
     data.pop("code", None)
+    # El cargo de Líder Mayor no se transfiere manualmente: se asigna solo por
+    # ser el primer líder del vecindario o por promoción automática al dar de baja.
+    data.pop("is_leader_mayor", None)
     for key, value in data.items():
         setattr(user, key, value)
     db.commit()
@@ -195,5 +210,7 @@ def deactivate_user(
             raise HTTPException(status_code=403, detail="No autorizado")
     user.is_active = False
     user.is_blocked = True
+    # Si era Líder Mayor, el cargo pasa al segundo líder (L02) o al Centinela C01
+    _reassign_mayor_if_needed(db, user)
     db.commit()
     return {"ok": True}
