@@ -10,7 +10,8 @@ from app import models  # noqa: F401
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-if config.config_file_name is not None:
+# fileConfig solo si el ini trae la sección de logging (evita KeyError en inis mínimos)
+if config.config_file_name is not None and config.get_section("loggers"):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
