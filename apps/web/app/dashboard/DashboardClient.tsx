@@ -12,9 +12,12 @@ interface UsersRow {
   email: string;
   full_name?: string | null;
   role_name?: string;
+  role_id?: number;
   neighborhood_id?: number | null;
   is_active?: boolean;
-  role_id?: number;
+  phone?: string | null;
+  avatar_url?: string | null;
+  photo_required?: boolean;
 }
 interface NeighborhoodRow {
   id: number;
@@ -112,7 +115,7 @@ function Modal({ title, onClose, children, onSave, saving }: {
 export default function DashboardClient() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
-  const [me, setMe] = useState<{ full_name?: string | null; role?: string | null } | null>(null);
+  const [me, setMe] = useState<{ full_name?: string | null; role?: string | null; email?: string | null; phone?: string | null; avatar_url?: string | null; onboarding_complete?: boolean; neighborhood_name?: string | null; photo_required?: boolean } | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [users, setUsers] = useState<UsersRow[]>([]);
   const [neighborhoods, setNeighborhoods] = useState<NeighborhoodRow[]>([]);
@@ -123,12 +126,15 @@ export default function DashboardClient() {
   const [showUser, setShowUser] = useState(false);
   const [showNbh, setShowNbh] = useState(false);
   const [showInc, setShowInc] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [editUser, setEditUser] = useState<UsersRow | null>(null);
   const [saving, setSaving] = useState(false);
 
   // forms
-  const [uform, setUform] = useState({ email: "", full_name: "", password: "", role_id: "30", neighborhood_id: "" });
+  const [uform, setUform] = useState({ email: "", full_name: "", password: "", role_id: "30", neighborhood_id: "", phone: "" });
   const [nform, setNform] = useState({ name: "", description: "" });
   const [iform, setIform] = useState({ title: "", description: "", category: "", severity: "media", neighborhood_id: "" });
+  const [pform, setPform] = useState({ full_name: "", phone: "" });
 
   const api = useCallback(async (path: string, opts: RequestInit = {}) => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -159,6 +165,10 @@ export default function DashboardClient() {
       setUsers(u ?? []);
       setNeighborhoods(n ?? []);
       setIncidents(i ?? []);
+      if (m.onboarding_complete === false && m.role !== "superadmin") {
+        router.push("/onboarding");
+        return;
+      }
       setError(null);
     } catch (e) {
       if (!(e instanceof Error && e.message === "Sesión expirada")) setError((e as Error).message);
@@ -200,10 +210,11 @@ export default function DashboardClient() {
           password: uform.password,
           role_id: Number(uform.role_id),
           neighborhood_id: uform.neighborhood_id ? Number(uform.neighborhood_id) : null,
+          phone: uform.phone || null,
         }),
       });
       setShowUser(false);
-      setUform({ email: "", full_name: "", password: "", role_id: "30", neighborhood_id: "" });
+      setUform({ email: "", full_name: "", password: "", role_id: "30", neighborhood_id: "", phone: "" });
       await load();
     } catch (e) {
       alert("Error: " + (e as Error).message);
@@ -255,7 +266,101 @@ export default function DashboardClient() {
   };
 
   const isSuperadmin = me?.role === "superadmin";
+  const isLeader = me?.role === "leader";
   const label = { "28": "Super Admin", "29": "Líder", "30": "Centinela" } as Record<string, string>;
+
+  // Roles que puede asignar el usuario logueado según su jerarquía
+  const allowedRoles = isSuperadmin
+    ? [{ id: "28", name: "Super Admin" }, { id: "29", name: "Líder" }, { id: "30", name: "Centinela" }]
+    : isLeader
+    ? [{ id: "29", name: "Líder" }, { id: "30", name: "Centinela" }]
+    : [{ id: "30", name: "Centinela" }];
+
+  const openEditUser = (u: UsersRow) => {
+    setEditUser({
+      ...u,
+      full_name: u.full_name ?? "",
+      phone: u.phone ?? "",
+    });
+  };
+
+  const saveEditUser = async () => {
+    if (!editUser) return;
+    setSaving(true);
+    try {
+      await api(`/users/${editUser.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          full_name: editUser.full_name || null,
+          phone: editUser.phone || null,
+          role_id: editUser.role_id ? Number(editUser.role_id) : undefined,
+          photo_required: editUser.photo_required ?? false,
+        }),
+      });
+      setEditUser(null);
+      await load();
+    } catch (e) {
+      alert("Error: " + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deactivateUser = async (u: UsersRow) => {
+    if (!window.confirm(`¿Dar de baja a ${u.full_name || u.email}?`)) return;
+    setSaving(true);
+    try {
+      await api(`/users/${u.id}`, { method: "DELETE" });
+      await load();
+    } catch (e) {
+      alert("Error: " + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Perfil del usuario logueado
+  const saveProfile = async () => {
+    setSaving(true);
+    try {
+      const m = await api("/me", { method: "PATCH", body: JSON.stringify(pform) });
+      setMe((prev) => ({ ...prev, ...m }));
+      setShowProfile(false);
+      await load();
+    } catch (e) {
+      alert("Error: " + (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deactivateMe = async () => {
+    if (!window.confirm("¿Darte de baja? Esto desactiva tu cuenta y cierra la sesión.")) return;
+    try {
+      await api("/me", { method: "DELETE" });
+      window.localStorage.removeItem("access_token");
+      window.localStorage.removeItem("refresh_token");
+      router.push("/login");
+    } catch (e) {
+      alert("Error: " + (e as Error).message);
+    }
+  };
+
+  const openProfile = () => {
+    setPform({ full_name: me?.full_name ?? "", phone: me?.phone ?? "" });
+    setShowProfile(true);
+  };
+
+  const Avatar = ({ url, name, size = 34 }: { url?: string | null; name?: string | null; size?: number }) => (
+    url ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={url} alt="avatar" style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover" }} />
+    ) : (
+      <div style={{ width: size, height: size, borderRadius: "50%", background: "#0f2f57", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: size * 0.45 }}>
+        {(name || "U").trim().charAt(0).toUpperCase()}
+      </div>
+    )
+  );
 
   return (
     <main style={{ padding: 24, maxWidth: 1280, margin: "0 auto", display: "grid", gap: 20 }}>
@@ -266,14 +371,13 @@ export default function DashboardClient() {
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           {me?.full_name && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "white", padding: "6px 12px 6px 6px", borderRadius: 40, boxShadow: "0 4px 14px rgba(0,0,0,0.08)" }}>
-              <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#0f2f57", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15 }}>
-                {(me.full_name || "U").trim().charAt(0).toUpperCase()}
-              </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "white", padding: "6px 12px 6px 6px", borderRadius: 40, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", cursor: "pointer" }} onClick={openProfile} title="Mi perfil">
+              <Avatar url={me?.avatar_url} name={me?.full_name} />
               <div style={{ lineHeight: 1.1 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, color: "#0f2f57" }}>{me.full_name}</div>
                 <div style={{ fontSize: 12, color: "#64748b" }}>{me.role === "superadmin" ? "Súper administrador" : me.role === "leader" ? "Líder" : me.role === "sentinel" ? "Centinela" : me.role}</div>
               </div>
+              <span style={{ marginLeft: 4, color: "#94a3b8" }}>⚙️</span>
             </div>
           )}
           <button onClick={() => router.push("/mapa")} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "#0f2f57", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
@@ -298,7 +402,7 @@ export default function DashboardClient() {
         {isSuperadmin && (
           <button onClick={() => setShowNbh(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#0f2f57", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nuevo Vecindario</button>
         )}
-        {isSuperadmin && (
+        {(isSuperadmin || isLeader) && (
           <button onClick={() => setShowUser(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#2563eb", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nuevo Usuario</button>
         )}
         {(isSuperadmin || me?.role === "leader") && (
@@ -306,11 +410,38 @@ export default function DashboardClient() {
         )}
       </section>
 
-      <DataTable
-        title="Usuarios"
-        headers={["ID", "Email", "Nombre", "Rol", "Vecindario"]}
-        rows={users.map((u) => ({ ID: u.id, Email: u.email, Nombre: u.full_name ?? "—", Rol: label[String(u.role_id)] ?? u.role_name ?? "—", Vecindario: u.neighborhood_id ?? "—" })) as Row[]}
-      />
+      <section style={{ background: "white", borderRadius: 18, padding: 18, boxShadow: "0 8px 24px rgba(15,47,87,0.08)" }}>
+        <h2 style={{ marginTop: 0, color: "#0f2f57" }}>Usuarios <span style={{ fontSize: 13, color: "#94a3b8", fontWeight: 400 }}>— haz clic en una fila para editarla</span></h2>
+        {users.length === 0 ? (
+          <p style={{ color: "#94a3b8" }}>Sin registros.</p>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["ID", "Usuario", "Nombre", "Rol", "Teléfono", "Foto"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #e2e8f0", padding: "10px 8px", color: "#334155" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.id} onClick={() => openEditUser(u)} style={{ cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.id}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.email}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.full_name ?? "—"}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{label[String(u.role_id)] ?? u.role_name ?? "—"}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.phone ?? "—"}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>
+                      {u.avatar_url ? <Avatar url={u.avatar_url} name={u.full_name} size={28} /> : <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#e2e8f0", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12 }}>{u.photo_required ? "📷" : "—"}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
       <DataTable
         title="Vecindarios"
         headers={["ID", "Nombre", "Descripción"]}
@@ -341,10 +472,12 @@ export default function DashboardClient() {
           <input style={fieldStyle} type="password" value={uform.password} onChange={(e) => setUform({ ...uform, password: e.target.value })} placeholder="••••••" />
           <label style={{ fontSize: 13, color: "#334155" }}>Rol</label>
           <select style={fieldStyle} value={uform.role_id} onChange={(e) => setUform({ ...uform, role_id: e.target.value })}>
-            <option value="30">Centinela</option>
-            <option value="29">Líder</option>
-            <option value="28">Super Admin</option>
+            {allowedRoles.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
           </select>
+          <label style={{ fontSize: 13, color: "#334155" }}>Teléfono</label>
+          <input style={fieldStyle} value={uform.phone} onChange={(e) => setUform({ ...uform, phone: e.target.value })} placeholder="5555-1234 (opcional)" />
           <label style={{ fontSize: 13, color: "#334155" }}>Vecindario</label>
           <select style={fieldStyle} value={uform.neighborhood_id} onChange={(e) => setUform({ ...uform, neighborhood_id: e.target.value })}>
             <option value="">— Sin vecindario —</option>
@@ -377,6 +510,57 @@ export default function DashboardClient() {
               <option key={nb.id} value={nb.id}>{nb.name}</option>
             ))}
           </select>
+        </Modal>
+      )}
+
+      {showProfile && me && (
+        <Modal title="Mi perfil" onClose={() => setShowProfile(false)} onSave={saveProfile} saving={saving}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+            <Avatar url={me.avatar_url} name={me.full_name} size={54} />
+            <div>
+              <div style={{ fontWeight: 700, color: "#0f2f57" }}>{me.full_name}</div>
+              <div style={{ color: "#64748b", fontSize: 13 }}>{me.email}</div>
+              <div style={{ color: "#94a3b8", fontSize: 12 }}>{label[String(me.role === "superadmin" ? "28" : me.role === "leader" ? "29" : "30")] ?? me.role} {me.neighborhood_name ? `· ${me.neighborhood_name}` : ""}</div>
+            </div>
+          </div>
+          <label style={{ fontSize: 13, color: "#334155" }}>Nombre completo</label>
+          <input style={fieldStyle} value={pform.full_name} onChange={(e) => setPform({ ...pform, full_name: e.target.value })} />
+          <label style={{ fontSize: 13, color: "#334155" }}>Teléfono</label>
+          <input style={fieldStyle} value={pform.phone} onChange={(e) => setPform({ ...pform, phone: e.target.value })} placeholder="5555-1234" />
+          {me.role !== "superadmin" && (
+            <button onClick={deactivateMe} style={{ width: "100%", marginTop: 8, padding: "11px", borderRadius: 10, border: "1px solid #fecaca", background: "#fff5f5", color: "#b91c1c", cursor: "pointer", fontWeight: 600 }}>
+              🗑️ Darse de baja (eliminar cuenta)
+            </button>
+          )}
+        </Modal>
+      )}
+
+      {editUser && (
+        <Modal title={`Ficha de usuario: ${editUser.full_name || editUser.email}`} onClose={() => setEditUser(null)} onSave={saveEditUser} saving={saving}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <Avatar url={editUser.avatar_url} name={editUser.full_name} size={44} />
+            <div style={{ color: "#64748b", fontSize: 13 }}>{editUser.email}</div>
+          </div>
+          <label style={{ fontSize: 13, color: "#334155" }}>Nombre completo</label>
+          <input style={fieldStyle} value={editUser.full_name ?? ""} onChange={(e) => setEditUser({ ...editUser, full_name: e.target.value })} />
+          <label style={{ fontSize: 13, color: "#334155" }}>Teléfono</label>
+          <input style={fieldStyle} value={editUser.phone ?? ""} onChange={(e) => setEditUser({ ...editUser, phone: e.target.value })} placeholder="5555-1234" />
+          <label style={{ fontSize: 13, color: "#334155" }}>Rol</label>
+          <select style={fieldStyle} value={String(editUser.role_id ?? "")} onChange={(e) => setEditUser({ ...editUser, role_id: Number(e.target.value) })}>
+            {allowedRoles.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#334155", marginTop: 6 }}>
+            <input type="checkbox" checked={editUser.photo_required ?? false} onChange={(e) => setEditUser({ ...editUser, photo_required: e.target.checked })} />
+            📷 Exigir fotografía al ingresar
+          </label>
+          <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>Si se exige, el usuario debe pasarse una foto (cámara) y compararla con la guardada.</div>
+          {editUser.role_name !== "superadmin" && (
+            <button onClick={() => deactivateUser(editUser)} style={{ width: "100%", marginTop: 12, padding: "11px", borderRadius: 10, border: "1px solid #fecaca", background: "#fff5f5", color: "#b91c1c", cursor: "pointer", fontWeight: 600 }}>
+              🗑️ Dar de baja
+            </button>
+          )}
         </Modal>
       )}
     </main>

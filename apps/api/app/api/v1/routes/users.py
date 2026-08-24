@@ -3,12 +3,32 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.auth import get_current_user
 from app.api.v1.deps import get_db
-from app.api.v1.permissions import require_roles
 from app.core.security import hash_password
 from app.models.user import User
 from app.schemas.user import UserCreate, UserListItem, UserRead, UserUpdate
 
 router = APIRouter()
+
+# Jerarquía de roles → qué roles puede asignar cada uno
+# role name -> set de role_ids que puede crear/asignar
+ROLE_HIERARCHY: dict[str, set[int]] = {
+    "superadmin": {28, 29, 30},
+    "leader": {29, 30},
+    "sentinel": {30},
+}
+
+_ROLE_VALID = {28, 29, 30}
+
+
+def _assert_can_assign(actor: User, role_id: int) -> None:
+    """Valida que el actor pueda asignar el role_id según su jerarquía."""
+    if role_id not in _ROLE_VALID:
+        raise HTTPException(status_code=400, detail="Rol inválido")
+    allowed = ROLE_HIERARCHY.get(actor.role.name, set())
+    if role_id not in allowed:
+        raise HTTPException(
+            status_code=403, detail="No autorizado: tu rol no puede asignar ese nivel"
+        )
 
 
 @router.get("")
@@ -16,8 +36,8 @@ def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.role.name != "superadmin":
-        require_roles(current_user, {"leader", "sentinel"})
+    if current_user.role.name not in {"superadmin", "leader", "sentinel"}:
+        raise HTTPException(status_code=403, detail="No autorizado")
     query = db.query(User)
     if current_user.role.name != "superadmin" and current_user.neighborhood_id:
         query = query.filter(User.neighborhood_id == current_user.neighborhood_id)
@@ -32,6 +52,10 @@ def list_users(
             "neighborhood_id": user.neighborhood_id,
             "is_active": user.is_active,
             "is_blocked": user.is_blocked,
+            "phone": user.phone,
+            "avatar_url": user.avatar_url,
+            "photo_required": user.photo_required,
+            "onboarding_complete": user.onboarding_complete,
         }
         for user in users
     ]
@@ -43,15 +67,28 @@ def create_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_roles(current_user, {"superadmin"})
+    # superadmin y leader pueden crear; sentinel no
+    if current_user.role.name not in {"superadmin", "leader"}:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    _assert_can_assign(current_user, payload.role_id)
+
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="El usuario ya existe")
+
+    neighborhood_id = payload.neighborhood_id
+    # Un líder solo puede asignar a su propio vecindario
+    if current_user.role.name == "leader" and current_user.neighborhood_id:
+        neighborhood_id = current_user.neighborhood_id
+        if payload.neighborhood_id and payload.neighborhood_id != current_user.neighborhood_id:
+            raise HTTPException(status_code=403, detail="No autorizado: solo puedes asignar tu vecindario")
+
     user = User(
         email=payload.email,
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
         role_id=payload.role_id,
-        neighborhood_id=payload.neighborhood_id,
+        neighborhood_id=neighborhood_id,
+        phone=payload.phone,
     )
     db.add(user)
     db.commit()
@@ -66,11 +103,46 @@ def update_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    require_roles(current_user, {"superadmin"})
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    for key, value in payload.model_dump(exclude_unset=True).items():
+
+    # Permisos: superadmin edita a cualquiera; leader edita a su vecindario (no a otro líder/superadmin)
+    is_superadmin = current_user.role.name == "superadmin"
+    is_leader = current_user.role.name == "leader"
+    if not (is_superadmin or is_leader):
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if is_leader:
+        if user.role.name == "superadmin" or user.role.name == "leader":
+            raise HTTPException(status_code=403, detail="No autorizado")
+        if current_user.neighborhood_id and user.neighborhood_id != current_user.neighborhood_id:
+            raise HTTPException(status_code=403, detail="No autorizado: usuario fuera de tu vecindario")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "role_id" in data:
+        _assert_can_assign(current_user, data["role_id"])
+    for key, value in data.items():
         setattr(user, key, value)
     db.commit()
     return {"id": user.id, "email": user.email}
+
+
+@router.delete("/{user_id}", response_model=dict)
+def deactivate_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    # Nadie puede eliminar a un superadmin (cuenta maestra)
+    if user.role.name == "superadmin":
+        raise HTTPException(status_code=403, detail="No se puede eliminar a un administrador")
+    if current_user.role.name == "leader":
+        if current_user.neighborhood_id and user.neighborhood_id != current_user.neighborhood_id:
+            raise HTTPException(status_code=403, detail="No autorizado")
+    user.is_active = False
+    user.is_blocked = True
+    db.commit()
+    return {"ok": True}

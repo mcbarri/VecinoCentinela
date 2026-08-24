@@ -6,6 +6,7 @@ class UserBase(BaseModel):
     full_name: str | None = None
     role_id: int
     neighborhood_id: int | None = None
+    phone: str | None = None
 
 
 class UserCreate(UserBase):
@@ -16,6 +17,9 @@ class UserRead(UserBase):
     id: int
     is_active: bool
     is_blocked: bool
+    avatar_url: str | None = None
+    photo_required: bool = False
+    onboarding_complete: bool = False
 
 
 class UserUpdate(BaseModel):
@@ -24,6 +28,10 @@ class UserUpdate(BaseModel):
     neighborhood_id: int | None = None
     is_active: bool | None = None
     is_blocked: bool | None = None
+    phone: str | None = None
+    avatar_url: str | None = None
+    photo_required: bool | None = None
+    onboarding_complete: bool | None = None
 
 
 class UserListItem(UserRead):

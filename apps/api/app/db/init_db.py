@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.security import hash_password
@@ -109,5 +110,21 @@ def seed(db: Session, superadmin_email: str, superadmin_password: str) -> None:
     db.commit()
 
 
+def ensure_profile_columns(db: Session) -> None:
+    """Añade columnas de perfil de forma idempotente (PostgreSQL)."""
+    additions = [
+        ("phone", "VARCHAR(50)"),
+        ("avatar_url", "TEXT"),
+        ("photo_required", "BOOLEAN DEFAULT FALSE NOT NULL"),
+        ("onboarding_complete", "BOOLEAN DEFAULT FALSE NOT NULL"),
+    ]
+    for col, ddl in additions:
+        db.execute(
+            text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {ddl}")
+        )
+    db.commit()
+
+
 def seed_defaults(db: Session) -> None:
+    ensure_profile_columns(db)
     seed(db, settings.superadmin_email, settings.superadmin_password)

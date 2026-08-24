@@ -22,6 +22,17 @@ export default function LoginPage() {
       if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "No se pudo iniciar sesión");
       window.localStorage.setItem("access_token", data.access_token);
       if (data.refresh_token) window.localStorage.setItem("refresh_token", data.refresh_token);
+      // Verificar si el usuario debe completar su perfil (fase 2)
+      try {
+        const meRes = await fetch(`${API_BASE}/me`, { headers: { Authorization: `Bearer ${data.access_token}` } });
+        if (meRes.ok) {
+          const me = await meRes.json();
+          router.push(me.onboarding_complete === false && me.role !== "superadmin" ? "/onboarding" : "/dashboard");
+          return;
+        }
+      } catch {
+        /* ignora */
+      }
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error de conexión con el servidor");

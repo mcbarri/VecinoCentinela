@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -16,6 +16,10 @@ class User(Base):
     is_blocked = Column(Boolean, default=False, nullable=False)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
     neighborhood_id = Column(Integer, ForeignKey("neighborhoods.id"), nullable=True)
+    phone = Column(String(50), nullable=True)
+    avatar_url = Column(Text, nullable=True)
+    photo_required = Column(Boolean, default=False, nullable=False)
+    onboarding_complete = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     role = relationship("Role")
