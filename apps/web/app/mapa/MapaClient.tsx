@@ -498,7 +498,10 @@ export default function MapaClient() {
           </svg>
           <div style={{ lineHeight: 1.15 }}>
             <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 700, margin: 0 }}>Vecino Centinela</h1>
-            <span style={{ color: "#cbd5e1", fontSize: 13, fontWeight: 500 }}>{myName || "Usuario"} — mapa en vivo</span>
+            <span>
+              <span style={{ color: "#4ade80", fontSize: 19, fontWeight: 800, letterSpacing: 0.3 }}>{myName || "Usuario"}</span>
+              <span style={{ color: "#cbd5e1", fontSize: 13, fontWeight: 500 }}> — mapa en vivo</span>
+            </span>
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
