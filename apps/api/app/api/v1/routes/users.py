@@ -86,8 +86,12 @@ def list_users(
     if current_user.role.name not in {"superadmin", "leader", "sentinel"}:
         raise HTTPException(status_code=403, detail="No autorizado")
     query = db.query(User)
-    if current_user.role.name != "superadmin" and current_user.neighborhood_id:
-        query = query.filter(User.neighborhood_id == current_user.neighborhood_id)
+    # El superadmin NUNCA aparece en la sesión de otros roles: solo se ve a sí
+    # mismo (y a todo) cuando es el superadmin quien consulta.
+    if current_user.role.name != "superadmin":
+        query = query.filter(User.role_id != 28)
+        if current_user.neighborhood_id:
+            query = query.filter(User.neighborhood_id == current_user.neighborhood_id)
     users = query.all()
     online_cutoff = datetime.utcnow() - timedelta(seconds=90)
     return [

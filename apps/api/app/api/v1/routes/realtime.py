@@ -100,8 +100,14 @@ def list_locations(
             "role": loc.user.role.name,
             "code": loc.user.code,
         }
+    # El superadmin no debe aparecer en el mapa de otros usuarios: solo se ve
+    # a sí mismo cuando es el superadmin quien consulta.
+    is_superadmin_viewer = current_user.role.name == "superadmin"
     result = []
     for loc in rows:
+        # Saltar al superadmin (rol 28) salvo que el consultante sea superadmin.
+        if not is_superadmin_viewer and loc.user and loc.user.role_id == 28:
+            continue
         # En línea si envió heartbeat reciente (last_seen) o si su ubicación
         # se actualizó recientemente.
         last_seen = loc.user.last_seen if loc.user else None
