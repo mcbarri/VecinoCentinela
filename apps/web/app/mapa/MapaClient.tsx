@@ -748,11 +748,17 @@ export default function MapaClient() {
           </span>
         </div>
         <button
-          style={{ ...styles.pttBtn, background: pttBg }}
+          draggable={false}
+          style={{
+            ...styles.pttBtn, background: pttBg, userSelect: "none" as const,
+            WebkitUserSelect: "none" as any, WebkitTouchCallout: "none" as any,
+            touchAction: "none" as const,
+          }}
           onPointerDown={pttPress}
           onPointerUp={pttRelease}
           onPointerLeave={() => { if (walkieStateRef.current === "talking") { pressTimerRef.current && clearTimeout(pressTimerRef.current); stopTalk(); setWalkieState("armed"); } }}
           onContextMenu={(e) => e.preventDefault()}
+          onTouchStart={(e) => { try { (e.target as HTMLButtonElement).style.webkitUserSelect = "none"; } catch {} }}
         >
           <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, opacity: 0.9 }}>{pttLabel.split(" ")[0]}</span>
           <span style={{ fontSize: 19, marginTop: 4 }}>{pttLabel.split(" ").slice(1).join(" ")}</span>
