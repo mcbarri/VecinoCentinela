@@ -49,6 +49,7 @@ export default function MapaClient() {
   const [error, setError] = useState<string | null>(null);
   const [mapInit, setMapInit] = useState(false);
   const [myName, setMyName] = useState<string | null>(null);
+  const [myColor, setMyColor] = useState<string>("#00c2a8");
 
   // Estados para rutas
   const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
@@ -272,6 +273,7 @@ export default function MapaClient() {
             else if (!u.online) color = "#6b7280"; // desconectado → gris
             else if (u.role === "leader") color = "#16a34a"; // líder verde
             else if (u.role === "superadmin") color = "#f59e0b"; // amber
+            if (isMe) setMyColor(color); // el nombre coincide con el color de su bolita
             const label = u.code ? u.code : (u.role === "leader" ? "L" : "C");
             const size = isMe ? 16 : 13;
             const icon = L.divIcon({
@@ -499,7 +501,7 @@ export default function MapaClient() {
           <div style={{ lineHeight: 1.15 }}>
             <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 700, margin: 0 }}>Vecino Centinela</h1>
             <span>
-              <span style={{ color: "#4ade80", fontSize: 19, fontWeight: 800, letterSpacing: 0.3 }}>{myName || "Usuario"}</span>
+              <span style={{ color: myColor, fontSize: 19, fontWeight: 800, letterSpacing: 0.3 }}>{myName || "Usuario"}</span>
               <span style={{ color: "#cbd5e1", fontSize: 13, fontWeight: 500 }}> — mapa en vivo</span>
             </span>
           </div>
