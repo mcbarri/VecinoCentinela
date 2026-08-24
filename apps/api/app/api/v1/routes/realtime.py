@@ -8,6 +8,7 @@ from app.api.v1.auth import get_current_user
 from app.api.v1.deps import get_db
 from app.api.v1.permissions import require_roles
 from app.models.patrol_route import PatrolRoute
+from app.models.presence_event import PresenceEvent
 from app.models.shift import Shift
 from app.models.user import User
 from app.models.user_location import UserLocation
@@ -16,6 +17,7 @@ from app.schemas.realtime import (
     Heartbeat,
     LocationPublish,
     PatrolRouteCreate,
+    PresenceEventCreate,
     ShiftCreate,
     ShiftUpdate,
 )
@@ -58,6 +60,10 @@ def heartbeat(
     """El usuario con sesión activa manda un latido (heartbeat).
     Actualiza last_seen (para marcar 'en línea') y, si envía coordenadas,
     publica su posición para que aparezca en el mapa en vivo.
+
+    Soporta el pipeline redundante: si el payload trae banderas de estado
+    (gps_off, gps_denied) o cola diferida (queued_count>0), se registra un
+    PresenceEvent en el canal de telemetría separado para auditoría.
     """
     current_user.last_seen = datetime.utcnow()
     if payload is not None and payload.latitude is not None and payload.longitude is not None:
@@ -73,8 +79,107 @@ def heartbeat(
                 longitude=payload.longitude,
             )
             db.add(loc)
+
+    # ── Canal de telemetría redundante ──
+    # Bandera GPS desactivado o sin permiso: registrar evento de tipo gps_off/gps_denied.
+    if payload is not None:
+        meta = json.dumps(
+            {
+                "ip_publica": payload.ip_publica,
+                "accuracy_m": payload.accuracy_m,
+                "flags": {
+                    "gps_off": payload.gps_off,
+                    "gps_denied": payload.gps_denied,
+                    "device_off": payload.device_off,
+                },
+            },
+            default=str,
+        )
+        is_pos = payload.latitude is not None and payload.longitude is not None
+        # Q2 la posición vino por IP (fallback sin GPS): etiquetar baja precisión.
+        if is_pos and payload.source == "ip":
+            _add_presence_event(
+                db, current_user.id, "ip_fallback",
+                message="Posición por fallback IP (sin GPS)",
+                latitude=payload.latitude, longitude=payload.longitude,
+                source="ip", confidence="low", meta=meta,
+            )
+        # GPS desactivado explícitamente.
+        if payload.gps_off:
+            _add_presence_event(
+                db, current_user.id, "gps_off",
+                message="GPS desactivado: se mantiene presencia vía heartbeat",
+                source=payload.source or "none", confidence="low", meta=meta,
+            )
+        # Permiso de ubicación denegado.
+        if payload.gps_denied:
+            _add_presence_event(
+                db, current_user.id, "gps_denied",
+                message="Permiso de ubicación denegado por el usuario",
+                source="none", confidence="low", meta=meta,
+            )
+        # Hubo cola diferida (latidos acumulados sin enviar por offline):
+        # el reintento llega ahora con queued_count>0 => se registra desconexión+reconexión.
+        if (payload.queued_count or 0) > 0:
+            _add_presence_event(
+                db, current_user.id, "reconnect",
+                message=f"Reconexión: se enviaron {payload.queued_count} latidos acumulados en cola local",
+                latitude=payload.latitude if is_pos else None,
+                longitude=payload.longitude if is_pos else None,
+                source=payload.source or "none", confidence=payload.confidence or "low",
+                queued_count=payload.queued_count, meta=meta,
+            )
+
     db.commit()
     return {"ok": True, "user_id": current_user.id}
+
+
+@router.post("/presence-events")
+def create_presence_event(
+    payload: PresenceEventCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Registra un evento de telemetría de presencia (canal separado de Incidentes).
+    Se usa para reportar desconexión de red (network_off), apagado de dispositivo
+    (device_off), o para el reenvío completo de la cola diferida tras reconectar.
+    """
+    meta = json.dumps(
+        {"ip_publica": payload.ip_publica, "queued": payload.queued or []},
+        default=str,
+    )
+    ev = PresenceEvent(
+        user_id=current_user.id,
+        kind=payload.kind,
+        message=payload.message,
+        latitude=str(payload.latitude) if payload.latitude is not None else None,
+        longitude=str(payload.longitude) if payload.longitude is not None else None,
+        source=payload.source,
+        confidence=payload.confidence,
+        queued_count=payload.queued_count,
+        meta=meta,
+    )
+    db.add(ev)
+    db.commit()
+    db.refresh(ev)
+    return {"ok": True, "event_id": ev.id}
+
+
+def _add_presence_event(db, user_id, kind, message=None, latitude=None, longitude=None,
+                        source=None, confidence=None, queued_count=0, meta=None):
+    db.add(
+        PresenceEvent(
+            user_id=user_id,
+            kind=kind,
+            message=message,
+            latitude=str(latitude) if latitude is not None else None,
+            longitude=str(longitude) if longitude is not None else None,
+            source=source,
+            confidence=confidence,
+            queued_count=queued_count or 0,
+            meta=meta,
+        )
+    )
 
 
 @router.get("/locations")
