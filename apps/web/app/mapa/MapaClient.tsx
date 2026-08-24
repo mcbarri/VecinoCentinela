@@ -308,7 +308,13 @@ export default function MapaClient() {
     const load = async () => {
       try {
         const res = await fetch(`${API_BASE}/realtime/locations`, { headers: { Authorization: `Bearer ${token}` } });
-        const data: LiveUser[] = await res.json();
+        const raw = await res.json();
+        // Defensivo: el backend puede devolver {users:[...]} o un dict; forzamos array.
+        const data: LiveUser[] = Array.isArray(raw)
+          ? raw
+          : Array.isArray(raw && raw.users)
+          ? raw.users
+          : [];
         setLiveUsers(data);
         if (leafletRef.current) {
           const L = window.L;
