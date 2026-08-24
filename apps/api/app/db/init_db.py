@@ -66,7 +66,8 @@ def seed(db: Session, superadmin_email: str, superadmin_password: str) -> None:
             db.flush()
         sentinels.append(user)
 
-    leader.sectors.append(sector)
+    if sector not in leader.sectors:
+        leader.sectors.append(sector)
     for user in sentinels:
         if sector not in user.sectors:
             user.sectors.append(sector)
