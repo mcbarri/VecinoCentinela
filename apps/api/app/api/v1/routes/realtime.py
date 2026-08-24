@@ -82,50 +82,66 @@ def list_locations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Devuelve la última posición de los usuarios en línea (mapa en vivo).
-    Solo aparecen los que están conectados: con heartbeat activo (last_seen
-    reciente) o que publicaron su ubicación hace menos de ONLINE_WINDOW seg.
-    Así el pin desaparece del mapa cuando el usuario se desconecta,
-    igual que desaparece de la tabla de usuarios en verde.
+    """Devuelve la ULTIMA posición conocida de TODOS los usuarios del vecindario
+    del consultante (mapa en vivo).
+
+    Incluye un campo `online` (bool): el pin se pinta a color si está en línea
+    (heartbeat activo last_seen reciente o ubicación publicada hace menos de
+    ONLINE_WINDOW seg) y en gris si NO está en línea, mostrando siempre su
+    última posición registrada. Así los detectores ven en el mapa dónde estuvo
+    la última vez que se conectó cada quien (por si algo les pasa).
+
+    Reglas:
+    - Solo usuarios del MISMO vecindario del consultante.
+    - El superadmin (rol 28) NO aparece para otros roles: solo se ve a sí mismo
+      cuando es el superadmin quien consulta.
+    - Se incluyen tanto usuarios con ubicación registrada como los que no tienen
+      (con lat/long None) para que la tabla los muestre igualmente.
     """
     from datetime import datetime, timedelta, timezone
 
     ONLINE_WINDOW = timedelta(seconds=90)
     cutoff = datetime.now(timezone.utc) - ONLINE_WINDOW
-    rows = db.query(UserLocation).all()
-    extra = {}
-    for loc in rows:
-        extra[loc.user_id] = {
-            "name": loc.user.full_name,
-            "role": loc.user.role.name,
-            "code": loc.user.code,
-        }
-    # El superadmin no debe aparecer en el mapa de otros usuarios: solo se ve
-    # a sí mismo cuando es el superadmin quien consulta.
-    is_superadmin_viewer = current_user.role.name == "superadmin"
+
+    # Base de usuarios del vecindario del consultante (mismo criterio que list_users)
+    query = db.query(User)
+    if current_user.role.name != "superadmin":
+        query = query.filter(User.role_id != 28)
+        if current_user.neighborhood_id:
+            query = query.filter(User.neighborhood_id == current_user.neighborhood_id)
+    users = query.all()
+
+    # Mapa de la última ubicación conocida por user_id
+    locations = {loc.user_id: loc for loc in db.query(UserLocation).all()}
+
     result = []
-    for loc in rows:
-        # Saltar al superadmin (rol 28) salvo que el consultante sea superadmin.
-        if not is_superadmin_viewer and loc.user and loc.user.role_id == 28:
+    for u in users:
+        if u.role_id == 28 and current_user.role.name != "superadmin":
             continue
-        # En línea si envió heartbeat reciente (last_seen) o si su ubicación
-        # se actualizó recientemente.
-        last_seen = loc.user.last_seen if loc.user else None
-        loc_ts = loc.updated_at
-        online = (last_seen is not None and last_seen >= cutoff) or (
-            loc_ts is not None and loc_ts >= cutoff
+        # Última posición conocida
+        loc = locations.get(u.id)
+        last_seen = u.last_seen
+        loc_ts = loc.updated_at if loc else None
+        # En línea si envió heartbeat reciente (last_seen) o si su ubicación se
+        # actualizó recientemente.
+        online = bool(
+            u.is_active
+            and not u.is_blocked
+            and (
+                (last_seen is not None and last_seen >= cutoff)
+                or (loc_ts is not None and loc_ts >= cutoff)
+            )
         )
-        if not online:
-            continue
         result.append(
             {
-                "user_id": loc.user_id,
-                "full_name": extra.get(loc.user_id, {}).get("name"),
-                "role": extra.get(loc.user_id, {}).get("role"),
-                "code": extra.get(loc.user_id, {}).get("code"),
-                "latitude": float(loc.latitude),
-                "longitude": float(loc.longitude),
-                "updated_at": loc.updated_at.isoformat() if loc.updated_at else None,
+                "user_id": u.id,
+                "full_name": u.full_name,
+                "role": u.role.name if u.role else None,
+                "code": u.code,
+                "latitude": float(loc.latitude) if loc and loc.latitude is not None else None,
+                "longitude": float(loc.longitude) if loc and loc.longitude is not None else None,
+                "updated_at": loc.updated_at.isoformat() if loc and loc.updated_at else None,
+                "online": online,
             }
         )
     return result

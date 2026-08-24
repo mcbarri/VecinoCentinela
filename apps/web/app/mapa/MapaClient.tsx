@@ -18,9 +18,10 @@ interface LiveUser {
   full_name?: string | null;
   role?: string | null;
   code?: string | null;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   updated_at?: string | null;
+  online?: boolean;
 }
 
 interface RoutePoint {
@@ -160,6 +161,18 @@ export default function MapaClient() {
     [token]
   );
 
+  // Centrar el mapa en el usuario seleccionado y magnificarlo
+  const focusUser = useCallback(
+    (u: LiveUser) => {
+      if (!leafletRef.current || u.latitude == null || u.longitude == null) return;
+      leafletRef.current.setView([u.latitude, u.longitude], 17); // zoom máximo
+      // Abrir el popup del pin
+      const m = markersRef.current[u.user_id];
+      if (m) m.openPopup();
+    },
+    []
+  );
+
   // Activar geolocalización continua
   useEffect(() => {
     if (!mapInit || !token) return;
@@ -185,7 +198,9 @@ export default function MapaClient() {
         setLiveUsers(data);
         if (leafletRef.current) {
           const L = window.L;
-          // Limpiar marcadores de usuarios que ya no están en línea (pin muerto)
+          const myId = JSON.parse(localStorage.getItem("user") || "{}").id;
+          // Todos los usuarios del vecindario tienen pin (última posición conocida).
+          // Los que ya no existen en la respuesta se limpian.
           const idsPresent = new Set(data.map((u: any) => u.user_id));
           Object.keys(markersRef.current).forEach((uid) => {
             if (!idsPresent.has(Number(uid))) {
@@ -195,13 +210,14 @@ export default function MapaClient() {
           });
           data.forEach((u) => {
             if (u.user_id === undefined) return;
-            const isMe = u.user_id === JSON.parse(localStorage.getItem("user") || "{}").id;
-            // Color según rol: líder = verde, centinela = azul, yo = celeste
+            const isMe = u.user_id === myId;
+            // Color: YO = celeste · en línea según rol (líder verde, centinela azul) ·
+            // OFFLINE = gris (última posición conocida)
             let color = "#2563eb"; // centinela azul
             if (isMe) color = "#00c2a8";
+            else if (!u.online) color = "#6b7280"; // desconectado → gris
             else if (u.role === "leader") color = "#16a34a"; // líder verde
             else if (u.role === "superadmin") color = "#f59e0b"; // amber
-            // Etiqueta con el código (L01/C01) sobre la bolita
             const label = u.code ? u.code : (u.role === "leader" ? "L" : "C");
             const size = isMe ? 16 : 13;
             const icon = L.divIcon({
@@ -209,12 +225,20 @@ export default function MapaClient() {
               html: `<div style="position:relative;width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 2px ${color}">`
                 + `<span style="position:absolute;top:-18px;left:50%;transform:translateX(-50%);background:${color};color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px;white-space:nowrap">${label}</span></div>`,
             });
-            const m = L.marker([u.latitude, u.longitude], { icon });
-            const poplabel = u.code ? `${u.code} · ${u.full_name ?? "Usuario"}${u.role ? " (" + u.role + ")" : ""}` : (u.full_name ? `${u.full_name}${u.role ? " · " + u.role : ""}` : "Usuario");
-            m.bindPopup(poplabel);
-            m.addTo(leafletRef.current);
-            if (markersRef.current[u.user_id]) leafletRef.current.removeLayer(markersRef.current[u.user_id]);
-            markersRef.current[u.user_id] = m;
+            // Si no tiene coordenadas aún, no lo pintamos en el mapa (solo tabla)
+            if (u.latitude != null && u.longitude != null) {
+              const m = L.marker([u.latitude, u.longitude], { icon });
+              const estado = u.online ? "🟢 En línea" : "⚪ Desconectado";
+              const poplabel = `${label} · ${u.full_name ?? "Usuario"}${u.role ? " (" + u.role + ")" : ""}<br/>${estado}<br/>Última conexión: ${u.updated_at ? new Date(u.updated_at).toLocaleString() : "nunca"}`;
+              m.bindPopup(poplabel);
+              m.addTo(leafletRef.current);
+              if (markersRef.current[u.user_id]) leafletRef.current.removeLayer(markersRef.current[u.user_id]);
+              markersRef.current[u.user_id] = m;
+            } else if (markersRef.current[u.user_id]) {
+              // Sin ubicación: quitar pin si existía
+              leafletRef.current.removeLayer(markersRef.current[u.user_id]);
+              delete markersRef.current[u.user_id];
+            }
           });
         }
       } catch (e) {
@@ -399,17 +423,53 @@ export default function MapaClient() {
       </div>
 
       <div style={styles.panel}>
-        <h3 style={styles.panelTitle}>📍 Usuarios conectados ({liveUsers.length})</h3>
+        <h3 style={styles.panelTitle}>👥 Usuarios del vecindario ({liveUsers.length})</h3>
         {liveUsers.length === 0 ? (
-          <p style={{ color: "#94a3b8" }}>Aún no hay ubicaciones registradas. Alguien debe entrar al mapa desde su teléfono.</p>
+          <p style={{ color: "#94a3b8" }}>No hay usuarios con ubicación registrada en tu vecindario.</p>
         ) : (
-          liveUsers.map((u) => (
-            <div key={u.user_id} style={styles.userRow}>
-              <span>👤 {u.full_name || "Usuario"}</span>
-              <span style={styles.badge}>{u.code ? u.code + " · " : ""}{u.role || "usuario"}</span>
-            </div>
-          ))
+          liveUsers.map((u) => {
+            const online = !!u.online;
+            const conectable = u.latitude != null && u.longitude != null;
+            return (
+              <div
+                key={u.user_id}
+                onClick={() => conectable && focusUser(u)}
+                style={{
+                  ...styles.userRow,
+                  cursor: conectable ? "pointer" : "default",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      flexShrink: 0,
+                      background: online ? "#16a34a" : "#9ca3af",
+                      boxShadow: online ? "0 0 0 3px rgba(22,163,74,0.2)" : "none",
+                    }}
+                  />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.full_name || "Usuario"}</span>
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <span style={{ ...styles.badge, background: online ? "#dcfce7" : "#f1f5f9", color: online ? "#166534" : "#64748b" }}>
+                    {u.code ? u.code + " · " : ""}{u.role || "usuario"}
+                  </span>
+                  <span style={{ fontSize: 12, color: online ? "#166534" : "#94a3b8" }}>{online ? "🟢 En línea" : "⚪ Desconectado"}</span>
+                  {conectable && <span style={{ fontSize: 11, color: "#0ea5e9" }}>📍</span>}
+                </span>
+              </div>
+            );
+          })
         )}
+        <p style={{ fontSize: 12, color: "#64748b", marginBottom: 0 }}>
+          Los desconectados muestran su última posición en gris. Toca una fila para centrar el mapa en ese pin.
+        </p>
       </div>
 
       {walkieOn && (
