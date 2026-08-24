@@ -54,9 +54,10 @@ export default function MapaClient() {
   const [routeName, setRouteName] = useState("");
   const [drawingRoute, setDrawingRoute] = useState(false);
 
-  // Estados walkie
-  const [walkieOn, setWalkieOn] = useState(false);
-  const [isTalking, setIsTalking] = useState(false);
+  // Estados walkie (push-to-talk): off | armed | talking
+  const [walkieState, setWalkieState] = useState<"off" | "armed" | "talking">("off");
+  const pressStartRef = useRef(0);
+  const pressTimerRef = useRef<any>(null);
 
   // Estilos (mismo look azul del dashboard)
   const styles: Record<string, React.CSSProperties> = {
@@ -73,6 +74,32 @@ export default function MapaClient() {
     userRow: { display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #f1f5f9", fontSize: 14 },
     walkieBtn: { width: "100%", padding: "18px 0", borderRadius: 14, border: "none", fontWeight: 700, fontSize: 16, cursor: "pointer", color: "#fff", transition: "all .15s" },
     micBtn: { width: "100%", padding: "14px 0", borderRadius: 12, border: "none", fontWeight: 700, fontSize: 15, cursor: "pointer" },
+    // Botón walkie flotante grande y cuadrado, fijo a la derecha
+    pttBtn: {
+      position: "fixed" as const,
+      right: 24,
+      bottom: 28,
+      width: 132,
+      height: 132,
+      borderRadius: 28,
+      border: "none",
+      fontWeight: 800,
+      fontSize: 15,
+      lineHeight: 1.25,
+      color: "#fff",
+      cursor: "pointer",
+      display: "flex",
+      flexDirection: "column" as const,
+      alignItems: "center",
+      justifyContent: "center",
+      boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+      transition: "all .12s",
+      zIndex: 1200,
+      userSelect: "none" as const,
+      WebkitUserSelect: "none" as const,
+      touchAction: "none" as const,
+      fontFamily: "system-ui, sans-serif",
+    },
   };
 
   // Cargar Leaflet CDN una sola vez
@@ -358,6 +385,7 @@ export default function MapaClient() {
       };
       rec.start(300); // chunks cada 300ms
       setIsTalking(true);
+      setWalkieState("talking");
     } catch (err: any) {
       alert("Microfono no disponible: " + err.message);
     }
@@ -370,6 +398,39 @@ export default function MapaClient() {
     // parar streams
     mediaRecRef.current?.stream?.getTracks().forEach((t) => t.stop());
   };
+
+  // ── PUSH-TO-TALK (tap vs hold) ──
+  // Con un único botón: tap corto = armar/apagar; mantener = transmitir.
+  const pttPress = () => {
+    pressStartRef.current = Date.now();
+    // Si está armado y se mantiene el dedo, arranca a transmitir tras 250ms
+    pressTimerRef.current = setTimeout(() => {
+      if (walkieStateRef.current === "armed") {
+        startTalk();
+      }
+    }, 250);
+  };
+
+  const pttRelease = () => {
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    const held = Date.now() - pressStartRef.current;
+    if (held < 250) {
+      // Tap corto: alternar armado
+      if (mediaRecRef.current && mediaRecRef.current.state !== "inactive") stopTalk();
+      setWalkieState((s) => (s === "off" ? "armed" : "off"));
+    } else {
+      // Mantener: dejar de transmitir y volver a estado armado (rojo)
+      stopTalk();
+      setWalkieState("armed");
+    }
+  };
+
+  // Ref espejo para handlers con cierre
+  const walkieStateRef = useRef("off");
+  useEffect(() => {
+    walkieStateRef.current = walkieState;
+  }, [walkieState]);
+
 
   // Recibir audio del walkie (del WebSocket broadcast)
   const playAudioChunk = useCallback((b64: string) => {
@@ -401,9 +462,17 @@ export default function MapaClient() {
     return () => ws.removeEventListener("message", handler);
   }, [mapInit, playAudioChunk]);
 
-  const toggleWalkie = () => {
-    setWalkieOn((v) => !v);
-  };
+  // Botón walkie flotante
+  const pttLabel =
+    walkieState === "off" ? "🔇 WALKIE OFF" : walkieState === "armed" ? "🎙️ PULSA Y HABLA" : "🔴 HABLANDO…";
+  const pttBg =
+    walkieState === "off" ? "#475569" : walkieState === "armed" ? "#ef4444" : "#16a34a";
+  const pttHint =
+    walkieState === "off"
+      ? "Toca para activar"
+      : walkieState === "armed"
+      ? "Mantén para hablar · toca para salir"
+      : "Suelta para terminar";
 
   return (
     <div style={styles.page}>
@@ -414,11 +483,6 @@ export default function MapaClient() {
           <h1 style={styles.title}>🗺️ Vecino Centinela — Mapa en Vivo</h1>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {walkieOn ? (
-            <button style={{ ...styles.walkieBtn, background: "#ef4444" }} onClick={toggleWalkie}>🔴 Walkie ON (pulsa para hablar)</button>
-          ) : (
-            <button style={{ ...styles.walkieBtn, background: "#475569" }} onClick={toggleWalkie}>🔇 Walkie OFF</button>
-          )}
         </div>
       </div>
 
@@ -487,22 +551,18 @@ export default function MapaClient() {
         </p>
       </div>
 
-      {walkieOn && (
-        <div style={styles.panel}>
-          <h3 style={styles.panelTitle}>🔊 Walkie Talkie</h3>
-          <p style={{ fontSize: 13, color: "#64748b" }}>Mantén presionado para hablar. Todos los conectados escuchan tu voz en vivo.</p>
-          <button
-            style={{ ...styles.micBtn, background: isTalking ? "#ef4444" : "#00c2a8", boxShadow: "0 4px 14px rgba(0,0,0,0.15)" }}
-            onMouseDown={startTalk}
-            onMouseUp={stopTalk}
-            onMouseLeave={isTalking ? stopTalk : undefined}
-            onTouchStart={startTalk}
-            onTouchEnd={stopTalk}
-          >
-            {isTalking ? "🎙️ HABLANDO… (suelta)" : "🎙️ PULSA PARA HABLAR"}
-          </button>
-        </div>
-      )}
+      {/* Botón walkie flotante — push-to-talk, fijo a la derecha */}
+      <button
+        style={{ ...styles.pttBtn, background: pttBg }}
+        onPointerDown={pttPress}
+        onPointerUp={pttRelease}
+        onPointerLeave={() => { if (walkieStateRef.current === "talking") { pressTimerRef.current && clearTimeout(pressTimerRef.current); stopTalk(); setWalkieState("armed"); } }}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, opacity: 0.9 }}>{pttLabel.split(" ")[0]}</span>
+        <span style={{ fontSize: 19, marginTop: 4 }}>{pttLabel.split(" ").slice(1).join(" ")}</span>
+        <span style={{ fontSize: 10, marginTop: 8, opacity: 0.75 }}>{pttHint}</span>
+      </button>
 
       <div style={styles.panel}>
         <h3 style={styles.panelTitle}>🛤️ Ruta de patrulla</h3>
