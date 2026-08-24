@@ -203,10 +203,17 @@ export default function MapaClient() {
         if ((container as any)._leaflet_id != null) {
           try { (container as any)._leaflet_id = null; } catch (e) {}
         }
-        const map = L.map(container).setView([14.6349, -90.5069], 12); // Guatemala central
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: "&copy; OpenStreetMap contributors",
-        }).addTo(map);
+        const map = L.map(container, {
+          // Quitamos el atributo por defecto de Leaflet/OSM que es un enlace que
+          // saca al usuario fuera del mapa; lo reemplazamos por nuestra etiqueta.
+          attributionControl: false,
+        }).setView([14.6349, -90.5069], 12); // Guatemala central
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {}).addTo(map);
+        // Etiqueta fija que tapa el hueco del atributo: enlace hecho a propósito
+        // para no salirse del mapa.
+        L.control.attribution({ prefix: false }).addAttribution(
+          '<span style="font-size:10px; font-weight:700; color:#111827;">MacBarrIn LLC @USA2026</span>'
+        ).addTo(map);
         leafletRef.current = map;
         routeLayerRef.current = L.layerGroup().addTo(map);
 
