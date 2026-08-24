@@ -260,9 +260,14 @@ export default function DashboardClient() {
           <h1 style={{ fontSize: 36, marginBottom: 8, color: "#0f2f57" }}>Dashboard</h1>
           <p style={{ margin: 0, color: "#475569" }}>Vista operativa de Vecino Centinela.</p>
         </div>
-        <button onClick={logout} style={{ padding: "10px 16px", borderRadius: 10, border: "1px solid #fecaca", background: "#fff5f5", color: "#b91c1c", cursor: "pointer", fontWeight: 600 }}>
-          🚪 Cerrar sesión
-        </button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={() => router.push("/mapa")} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "#0f2f57", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
+            🗺️ Mapa en Vivo
+          </button>
+          <button onClick={logout} style={{ padding: "10px 16px", borderRadius: 10, border: "1px solid #fecaca", background: "#fff5f5", color: "#b91c1c", cursor: "pointer", fontWeight: 600 }}>
+            🚪 Cerrar sesión
+          </button>
+        </div>
       </header>
 
       {error && <div style={{ background: "#fef2f2", color: "#b91c1c", padding: "12px 16px", borderRadius: 10 }}>⚠️ {error}</div>}
