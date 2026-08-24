@@ -9,6 +9,12 @@ class LocationPublish(BaseModel):
     longitude: float
 
 
+class Heartbeat(BaseModel):
+    """Latido de presencia: coordenadas opcionales (para posicionarse en el mapa)."""
+    latitude: float | None = None
+    longitude: float | None = None
+
+
 class LocationRead(BaseModel):
     user_id: int
     full_name: str | None = None

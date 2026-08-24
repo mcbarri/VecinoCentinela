@@ -13,6 +13,7 @@ from app.models.user import User
 from app.models.user_location import UserLocation
 from app.realtime import manager
 from app.schemas.realtime import (
+    Heartbeat,
     LocationPublish,
     PatrolRouteCreate,
     ShiftCreate,
@@ -50,7 +51,7 @@ def publish_location(
 
 @router.post("/heartbeat")
 def heartbeat(
-    payload: LocationPublish | None = None,
+    payload: Heartbeat | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -59,7 +60,7 @@ def heartbeat(
     publica su posición para que aparezca en el mapa en vivo.
     """
     current_user.last_seen = datetime.utcnow()
-    if payload is not None:
+    if payload is not None and payload.latitude is not None and payload.longitude is not None:
         loc = db.query(UserLocation).filter(UserLocation.user_id == current_user.id).first()
         if loc:
             loc.latitude = payload.latitude
