@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -87,6 +89,7 @@ def list_users(
     if current_user.role.name != "superadmin" and current_user.neighborhood_id:
         query = query.filter(User.neighborhood_id == current_user.neighborhood_id)
     users = query.all()
+    online_cutoff = datetime.utcnow() - timedelta(seconds=90)
     return [
         {
             "id": user.id,
@@ -103,6 +106,12 @@ def list_users(
             "avatar_url": user.avatar_url,
             "photo_required": user.photo_required,
             "onboarding_complete": user.onboarding_complete,
+            "is_online": bool(
+                user.is_active
+                and not user.is_blocked
+                and user.last_seen is not None
+                and user.last_seen.replace(tzinfo=None) >= online_cutoff
+            ),
         }
         for user in users
     ]

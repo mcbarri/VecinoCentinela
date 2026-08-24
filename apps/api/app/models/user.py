@@ -22,6 +22,7 @@ class User(Base):
     onboarding_complete = Column(Boolean, default=False, nullable=False)
     code = Column(String(10), nullable=True, unique=False)
     is_leader_mayor = Column(Boolean, default=False, nullable=False)
+    last_seen = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

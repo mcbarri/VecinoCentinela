@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { start as startPresence } from "../../lib/presence";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -97,6 +98,7 @@ export default function MapaClient() {
     }
     setToken(t);
     setLoading(false);
+    startPresence(); // mantiene la sesión activa marcada en línea aunque cambie de página
 
     (async () => {
       try {

@@ -48,6 +48,34 @@ def publish_location(
     return {"ok": True, "user_id": current_user.id}
 
 
+@router.post("/heartbeat")
+def heartbeat(
+    payload: LocationPublish | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """El usuario con sesión activa manda un latido (heartbeat).
+    Actualiza last_seen (para marcar 'en línea') y, si envía coordenadas,
+    publica su posición para que aparezca en el mapa en vivo.
+    """
+    current_user.last_seen = datetime.utcnow()
+    if payload is not None:
+        loc = db.query(UserLocation).filter(UserLocation.user_id == current_user.id).first()
+        if loc:
+            loc.latitude = payload.latitude
+            loc.longitude = payload.longitude
+            loc.updated_at = datetime.utcnow()
+        else:
+            loc = UserLocation(
+                user_id=current_user.id,
+                latitude=payload.latitude,
+                longitude=payload.longitude,
+            )
+            db.add(loc)
+    db.commit()
+    return {"ok": True, "user_id": current_user.id}
+
+
 @router.get("/locations")
 def list_locations(
     db: Session = Depends(get_db),

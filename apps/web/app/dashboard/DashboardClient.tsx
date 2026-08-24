@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { start as startPresence } from "../../lib/presence";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
@@ -20,6 +21,7 @@ interface UsersRow {
   photo_required?: boolean;
   code?: string | null;
   is_leader_mayor?: boolean;
+  is_online?: boolean;
 }
 interface NeighborhoodRow {
   id: number;
@@ -187,7 +189,12 @@ export default function DashboardClient() {
   }, [router]);
 
   useEffect(() => {
-    if (token) load();
+    if (token) {
+      startPresence(); // marca la sesión como activa + publica ubicación en vivo
+      load();
+      const iv = setInterval(() => load(), 30000); // refresca estado en línea (verde)
+      return () => clearInterval(iv);
+    }
   }, [token, load]);
 
   const logout = () => {
@@ -423,14 +430,24 @@ export default function DashboardClient() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["ID", "Código", "Usuario", "Nombre", "Rol", "Teléfono", "Foto"].map((h) => (
+                  {["ID", "Código", "Usuario", "Nombre", "Rol", "Teléfono", "Foto", "Estado"].map((h) => (
                     <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #e2e8f0", padding: "10px 8px", color: "#334155" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {users.map((u) => (
-                  <tr key={u.id} onClick={() => openEditUser(u)} style={{ cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                  <tr
+                    key={u.id}
+                    onClick={() => openEditUser(u)}
+                    style={{
+                      cursor: "pointer",
+                      background: u.is_online ? "#dcfce7" : "transparent",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = u.is_online ? "#bbf7d0" : "#f8fafc")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = u.is_online ? "#dcfce7" : "transparent")}
+                  >
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.id}</td>
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.code ?? "—"}</td>
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.email}</td>
@@ -439,6 +456,13 @@ export default function DashboardClient() {
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.phone ?? "—"}</td>
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>
                       {u.avatar_url ? <Avatar url={u.avatar_url} name={u.full_name} size={28} /> : <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#e2e8f0", display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 12 }}>{u.photo_required ? "📷" : "—"}</div>}
+                    </td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>
+                      {u.is_online ? (
+                        <span style={{ color: "#16a34a", fontWeight: 700, fontSize: 13 }}>● En línea</span>
+                      ) : (
+                        <span style={{ color: "#94a3b8", fontSize: 13 }}>—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
