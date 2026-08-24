@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.routes import auth, dashboard, incidents, me, neighborhoods, realtime, users
+from app.api.v1.routes import auth, dashboard, debug, incidents, me, neighborhoods, realtime, users
 
 router = APIRouter()
 router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -10,3 +10,4 @@ router.include_router(incidents.router, prefix="/incidents", tags=["incidents"])
 router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(me.router, prefix="/me", tags=["me"])
 router.include_router(realtime.router, prefix="/realtime", tags=["realtime"])
+router.include_router(debug.router, prefix="/debug", tags=["debug"])

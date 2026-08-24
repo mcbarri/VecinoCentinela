@@ -80,6 +80,35 @@ export default function MapaClient() {
   const pressStartRef = useRef(0);
   const pressTimerRef = useRef<any>(null);
 
+  // Reporte de errores de runtime del cliente al servidor (diagnóstico).
+  // Cualquier excepción no capturada se envía a /debug/crash para que McBarri
+  // pueda ver el stack real sin necesidad de reproducir el error a mano.
+  useEffect(() => {
+    const report = (data: Record<string, unknown>) => {
+      try {
+        const url = API_BASE.replace(/\/api\/v1$/, "") + "/api/v1/debug/crash";
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...data, url: window.location.href }),
+        }).catch(() => {});
+      } catch (e) {}
+    };
+    const onErr = (ev: ErrorEvent) => {
+      report({ message: ev.message, source: ev.filename, lineno: ev.lineno, colno: ev.colno, stack: ev.error && ev.error.stack });
+    };
+    const onRej = (ev: PromiseRejectionEvent) => {
+      const reason: any = ev.reason;
+      report({ message: "Unhandled promise rejection", error: String(reason), stack: reason && reason.stack });
+    };
+    window.addEventListener("error", onErr);
+    window.addEventListener("unhandledrejection", onRej);
+    return () => {
+      window.removeEventListener("error", onErr);
+      window.removeEventListener("unhandledrejection", onRej);
+    };
+  }, []);
+
   // Estilos (mismo look azul del dashboard)
   const styles: Record<string, React.CSSProperties> = {
     page: { minHeight: "100vh", background: "#0f2f57", padding: 20, fontFamily: "system-ui, sans-serif" },
