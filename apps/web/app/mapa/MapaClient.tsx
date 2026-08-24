@@ -30,7 +30,7 @@ export default function MapaClient() {
   const router = useRouter();
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletRef = useRef<any>(null);
-  const markersRef = useRef<Record<number, any>>({});
+  const markersRef = useRef<Record<string, any>>({});
   const routeLayerRef = useRef<any>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -286,6 +286,7 @@ export default function MapaClient() {
       audio.src = url;
       audio.play().catch(() => {});
     } catch (e) {}
+    setTimeout(() => URL.revokeObjectURL(audioElRef.current?.src ?? ""), 2000);
   }, []);
 
   // Interceptar mensajes de audio en el WS
