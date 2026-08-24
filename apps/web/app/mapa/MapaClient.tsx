@@ -48,6 +48,7 @@ export default function MapaClient() {
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mapInit, setMapInit] = useState(false);
+  const [myName, setMyName] = useState<string | null>(null);
 
   // Estados para rutas
   const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
@@ -127,6 +128,17 @@ export default function MapaClient() {
     setToken(t);
     setLoading(false);
     startPresence(); // mantiene la sesión activa marcada en línea aunque cambie de página
+
+    // Obtener nombre del usuario actual para el encabezado
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/me`, { headers: { Authorization: `Bearer ${t}` } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.full_name) setMyName(data.full_name);
+        }
+      } catch (e) {}
+    })();
 
     (async () => {
       try {
@@ -476,9 +488,18 @@ export default function MapaClient() {
     <div style={styles.page}>
       <audio ref={audioElRef} />
       <div style={styles.topbar}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button style={styles.btnGhost} onClick={() => router.push("/dashboard")}>← Panel</button>
-          <h1 style={styles.title}>🗺️ Vecino Centinela — Mapa en Vivo</h1>
+          {/* Logo: mapita con solo forro/outline en blanco */}
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+            <path d="M9 4v14" />
+            <path d="M15 6v14" />
+          </svg>
+          <div style={{ lineHeight: 1.15 }}>
+            <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 700, margin: 0 }}>Vecino Centinela</h1>
+            <span style={{ color: "#cbd5e1", fontSize: 13, fontWeight: 500 }}>{myName || "Usuario"} — mapa en vivo</span>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         </div>
