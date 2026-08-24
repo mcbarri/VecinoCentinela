@@ -399,9 +399,16 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
         while True:
-            # El cliente puede enviar mensajes (ej: ping de posición). Los broadcast.
+            # El cliente envía mensajes ya formateados (posiciones, audio del walkie,
+            # presencia, comandos). Se reenvían TAL CUAL a los demás para que cada
+            # receptor maneje su own `type` (p.ej. "audio"). Si viene JSON, lo
+            # parseamos para que el broadcast no reciba un string anidado.
             data = await websocket.receive_text()
-            await manager.broadcast({"type": "update", "data": data})
+            try:
+                message = json.loads(data)
+            except Exception:
+                message = {"type": "update", "data": data}
+            await manager.broadcast(message)
     except Exception:
         pass
     finally:
