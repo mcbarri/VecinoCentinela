@@ -43,7 +43,9 @@ def _next_code(db: Session, role_name: str) -> str:
     if not prefix:
         return None
     used = set()
-    for u in db.query(User).filter(User.code.isnot(None)).all():
+    # Solo cuentan los códigos de usuarios ACTIVOS: al dar de baja (soft-delete)
+    # el usuario queda inactivo y libera su hueco para ser reutilizado.
+    for u in db.query(User).filter(User.code.isnot(None), User.is_active == True, User.is_blocked == False).all():
         if u.code and u.code.startswith(prefix):
             try:
                 used.add(int(u.code[len(prefix):]))
