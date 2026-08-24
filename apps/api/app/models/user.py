@@ -20,6 +20,8 @@ class User(Base):
     avatar_url = Column(Text, nullable=True)
     photo_required = Column(Boolean, default=False, nullable=False)
     onboarding_complete = Column(Boolean, default=False, nullable=False)
+    code = Column(String(10), nullable=True, unique=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     role = relationship("Role")

@@ -57,12 +57,17 @@ def list_locations(
     rows = db.query(UserLocation).all()
     extra = {}
     for loc in rows:
-        extra[loc.user_id] = {"name": loc.user.full_name, "role": loc.user.role.name}
+        extra[loc.user_id] = {
+            "name": loc.user.full_name,
+            "role": loc.user.role.name,
+            "code": loc.user.code,
+        }
     return [
         {
             "user_id": loc.user_id,
             "full_name": extra.get(loc.user_id, {}).get("name"),
             "role": extra.get(loc.user_id, {}).get("role"),
+            "code": extra.get(loc.user_id, {}).get("code"),
             "latitude": float(loc.latitude),
             "longitude": float(loc.longitude),
             "updated_at": loc.updated_at.isoformat() if loc.updated_at else None,

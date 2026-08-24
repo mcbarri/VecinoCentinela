@@ -18,6 +18,7 @@ interface UsersRow {
   phone?: string | null;
   avatar_url?: string | null;
   photo_required?: boolean;
+  code?: string | null;
 }
 interface NeighborhoodRow {
   id: number;
@@ -115,7 +116,7 @@ function Modal({ title, onClose, children, onSave, saving }: {
 export default function DashboardClient() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
-  const [me, setMe] = useState<{ full_name?: string | null; role?: string | null; email?: string | null; phone?: string | null; avatar_url?: string | null; onboarding_complete?: boolean; neighborhood_name?: string | null; photo_required?: boolean } | null>(null);
+  const [me, setMe] = useState<{ full_name?: string | null; role?: string | null; email?: string | null; phone?: string | null; avatar_url?: string | null; onboarding_complete?: boolean; neighborhood_name?: string | null; photo_required?: boolean; code?: string | null } | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [users, setUsers] = useState<UsersRow[]>([]);
   const [neighborhoods, setNeighborhoods] = useState<NeighborhoodRow[]>([]);
@@ -202,7 +203,7 @@ export default function DashboardClient() {
     }
     setSaving(true);
     try {
-      await api("/users", {
+      const res = await api("/users", {
         method: "POST",
         body: JSON.stringify({
           email: uform.email,
@@ -216,6 +217,7 @@ export default function DashboardClient() {
       setShowUser(false);
       setUform({ email: "", full_name: "", password: "", role_id: "30", neighborhood_id: "", phone: "" });
       await load();
+      if (res?.code) alert(`✅ Usuario creado. Su código de identificación es: ${res.code}`);
     } catch (e) {
       alert("Error: " + (e as Error).message);
     } finally {
@@ -374,7 +376,7 @@ export default function DashboardClient() {
             <div style={{ display: "flex", alignItems: "center", gap: 6, background: "white", padding: "6px 12px 6px 6px", borderRadius: 40, boxShadow: "0 4px 14px rgba(0,0,0,0.08)", cursor: "pointer" }} onClick={openProfile} title="Mi perfil">
               <Avatar url={me?.avatar_url} name={me?.full_name} />
               <div style={{ lineHeight: 1.1 }}>
-                <div style={{ fontWeight: 600, fontSize: 14, color: "#0f2f57" }}>{me.full_name}</div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: "#0f2f57" }}>{me.full_name} {me.code ? <span style={{ color: "#0f766e", fontWeight: 700 }}>· {me.code}</span> : null}</div>
                 <div style={{ fontSize: 12, color: "#64748b" }}>{me.role === "superadmin" ? "Súper administrador" : me.role === "leader" ? "Líder" : me.role === "sentinel" ? "Centinela" : me.role}</div>
               </div>
               <span style={{ marginLeft: 4, color: "#94a3b8" }}>⚙️</span>
@@ -419,7 +421,7 @@ export default function DashboardClient() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["ID", "Usuario", "Nombre", "Rol", "Teléfono", "Foto"].map((h) => (
+                  {["ID", "Código", "Usuario", "Nombre", "Rol", "Teléfono", "Foto"].map((h) => (
                     <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #e2e8f0", padding: "10px 8px", color: "#334155" }}>{h}</th>
                   ))}
                 </tr>
@@ -428,6 +430,7 @@ export default function DashboardClient() {
                 {users.map((u) => (
                   <tr key={u.id} onClick={() => openEditUser(u)} style={{ cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.id}</td>
+                    <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.code ?? "—"}</td>
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.email}</td>
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{u.full_name ?? "—"}</td>
                     <td style={{ padding: "10px 8px", borderBottom: "1px solid #f1f5f9" }}>{label[String(u.role_id)] ?? u.role_name ?? "—"}</td>
@@ -543,6 +546,8 @@ export default function DashboardClient() {
           </div>
           <label style={{ fontSize: 13, color: "#334155" }}>Nombre completo</label>
           <input style={fieldStyle} value={editUser.full_name ?? ""} onChange={(e) => setEditUser({ ...editUser, full_name: e.target.value })} />
+          <label style={{ fontSize: 13, color: "#334155" }}>Código de identificación <span style={{ color: "#94a3b8", fontWeight: 400 }}>(automático, no editable)</span></label>
+          <input style={{ ...fieldStyle, background: "#f1f5f9", color: "#475569" }} value={editUser.code ?? "—"} disabled />
           <label style={{ fontSize: 13, color: "#334155" }}>Teléfono</label>
           <input style={fieldStyle} value={editUser.phone ?? ""} onChange={(e) => setEditUser({ ...editUser, phone: e.target.value })} placeholder="5555-1234" />
           <label style={{ fontSize: 13, color: "#334155" }}>Rol</label>

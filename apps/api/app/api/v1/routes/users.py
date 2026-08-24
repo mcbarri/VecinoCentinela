@@ -5,6 +5,7 @@ from app.api.v1.auth import get_current_user
 from app.api.v1.deps import get_db
 from app.core.security import hash_password
 from app.models.user import User
+from app.models.role import Role
 from app.schemas.user import UserCreate, UserListItem, UserRead, UserUpdate
 
 router = APIRouter()
@@ -18,6 +19,40 @@ ROLE_HIERARCHY: dict[str, set[int]] = {
 }
 
 _ROLE_VALID = {28, 29, 30}
+
+# Prefijo del código de identificación por rol
+# Líder → L01, L02… · Centinela → C01, C02…
+_CODE_PREFIX = {
+    "leader": "L",
+    "sentinel": "C",
+}
+
+
+def _role_name_by_id(db: Session, role_id: int) -> str:
+    """Devuelve el nombre del rol (leader/sentinel/superadmin) para un role_id."""
+    r = db.query(Role).filter(Role.id == role_id).first()
+    return r.name if r else ""
+
+
+def _next_code(db: Session, role_name: str) -> str:
+    """Calcula el menor código libre para el rol, reutilizando huecos.
+    Solo considera usuarios activos (no dados de baja).
+    Ej: líder → L01, L02, L03… · centinela → C01, C02…
+    """
+    prefix = _CODE_PREFIX.get(role_name)
+    if not prefix:
+        return None
+    used = set()
+    for u in db.query(User).filter(User.code.isnot(None)).all():
+        if u.code and u.code.startswith(prefix):
+            try:
+                used.add(int(u.code[len(prefix):]))
+            except ValueError:
+                pass
+    n = 1
+    while n in used:
+        n += 1
+    return f"{prefix}{n:02d}"
 
 
 def _assert_can_assign(actor: User, role_id: int) -> None:
@@ -52,6 +87,7 @@ def list_users(
             "neighborhood_id": user.neighborhood_id,
             "is_active": user.is_active,
             "is_blocked": user.is_blocked,
+            "code": user.code,
             "phone": user.phone,
             "avatar_url": user.avatar_url,
             "photo_required": user.photo_required,
@@ -90,10 +126,13 @@ def create_user(
         neighborhood_id=neighborhood_id,
         phone=payload.phone,
     )
+    # Asignar código de identificación automático (fijo, no editable):
+    # usa el menor hueco libre de su rol (L para líder, C para centinela).
+    user.code = _next_code(db, _role_name_by_id(db, payload.role_id))
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"id": user.id, "email": user.email}
+    return {"id": user.id, "email": user.email, "code": user.code}
 
 
 @router.patch("/{user_id}", response_model=dict)
@@ -129,6 +168,8 @@ def update_user(
 
     if "role_id" in data:
         _assert_can_assign(current_user, data["role_id"])
+    # El código de identificación es FIJO: nunca se puede cambiar ni reasignar.
+    data.pop("code", None)
     for key, value in data.items():
         setattr(user, key, value)
     db.commit()

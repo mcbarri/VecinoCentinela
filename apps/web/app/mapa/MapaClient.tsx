@@ -16,6 +16,7 @@ interface LiveUser {
   user_id: number;
   full_name?: string | null;
   role?: string | null;
+  code?: string | null;
   latitude: number;
   longitude: number;
   updated_at?: string | null;
@@ -31,6 +32,7 @@ export default function MapaClient() {
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletRef = useRef<any>(null);
   const markersRef = useRef<Record<string, any>>({});
+  const incidentMarkersRef = useRef<Record<string, any>>({});
   const routeLayerRef = useRef<any>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -40,6 +42,7 @@ export default function MapaClient() {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [liveUsers, setLiveUsers] = useState<LiveUser[]>([]);
+  const [incidents, setIncidents] = useState<any[]>([]);
   const [myPos, setMyPos] = useState<{ lat: number; lng: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mapInit, setMapInit] = useState(false);
@@ -183,13 +186,22 @@ export default function MapaClient() {
           data.forEach((u) => {
             if (u.user_id === undefined) return;
             const isMe = u.user_id === JSON.parse(localStorage.getItem("user") || "{}").id;
+            // Color según rol: líder = verde, centinela = azul, yo = celeste
+            let color = "#2563eb"; // centinela azul
+            if (isMe) color = "#00c2a8";
+            else if (u.role === "leader") color = "#16a34a"; // líder verde
+            else if (u.role === "superadmin") color = "#f59e0b"; // amber
+            // Etiqueta con el código (L01/C01) sobre la bolita
+            const label = u.code ? u.code : (u.role === "leader" ? "L" : "C");
+            const size = isMe ? 16 : 13;
             const icon = L.divIcon({
               className: "",
-              html: `<div style="width:${isMe ? 16 : 12}px;height:${isMe ? 16 : 12}px;border-radius:50%;background:${isMe ? "#00c2a8" : "#ef4444"};border:2px solid #fff;box-shadow:0 0 0 2px ${isMe ? "#00c2a8" : "#ef4444"}"></div>`,
+              html: `<div style="position:relative;width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 2px ${color}">`
+                + `<span style="position:absolute;top:-18px;left:50%;transform:translateX(-50%);background:${color};color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px;white-space:nowrap">${label}</span></div>`,
             });
             const m = L.marker([u.latitude, u.longitude], { icon });
-            const label = u.full_name ? `${u.full_name}${u.role ? " · " + u.role : ""}` : "Usuario";
-            m.bindPopup(label);
+            const poplabel = u.code ? `${u.code} · ${u.full_name ?? "Usuario"}${u.role ? " (" + u.role + ")" : ""}` : (u.full_name ? `${u.full_name}${u.role ? " · " + u.role : ""}` : "Usuario");
+            m.bindPopup(poplabel);
             m.addTo(leafletRef.current);
             if (markersRef.current[u.user_id]) leafletRef.current.removeLayer(markersRef.current[u.user_id]);
             markersRef.current[u.user_id] = m;
@@ -201,6 +213,35 @@ export default function MapaClient() {
     };
     load();
 
+    // Cargar incidentes/alertas (rojo en el mapa) junto con las ubicaciones
+    const loadIncidents = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/incidents`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = await res.json();
+        setIncidents(data);
+        if (leafletRef.current) {
+          const L = window.L;
+          // limpiar marcadores rojos previos
+          Object.values(incidentMarkersRef.current).forEach((m) => leafletRef.current?.removeLayer(m));
+          incidentMarkersRef.current = {};
+          data.forEach((inc: any) => {
+            if (inc.latitude == null || inc.longitude == null) return;
+            if (inc.status !== "abierta") return; // solo alertas activas
+            const icon = L.divIcon({
+              className: "",
+              html: `<div style="width:16px;height:16px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 0 0 2px #ef4444"></div>`,
+            });
+            const m = L.marker([Number(inc.latitude), Number(inc.longitude)], { icon });
+            m.bindPopup(`🚨 ${inc.title}${inc.description ? "<br/>" + inc.description : ""}`);
+            m.addTo(leafletRef.current!);
+            incidentMarkersRef.current[inc.id] = m;
+          });
+        }
+      } catch (e) {}
+    };
+    loadIncidents();
+
     // WebSocket para actualizaciones en vivo
     const wsUrl = API_BASE.replace("https://", "wss://").replace("http://", "ws://").replace("/api/v1", "/api/v1/realtime/ws");
     const ws = new WebSocket(wsUrl);
@@ -208,7 +249,10 @@ export default function MapaClient() {
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data);
-        if (msg.type === "update") load();
+        if (msg.type === "update") {
+          load();
+          loadIncidents();
+        }
       } catch (e) {}
     };
     return () => ws.close();
@@ -344,7 +388,7 @@ export default function MapaClient() {
           liveUsers.map((u) => (
             <div key={u.user_id} style={styles.userRow}>
               <span>👤 {u.full_name || "Usuario"}</span>
-              <span style={styles.badge}>{u.role || "usuario"}</span>
+              <span style={styles.badge}>{u.code ? u.code + " · " : ""}{u.role || "usuario"}</span>
             </div>
           ))
         )}
