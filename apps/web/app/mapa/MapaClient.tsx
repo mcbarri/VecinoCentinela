@@ -694,14 +694,14 @@ export default function MapaClient() {
 
       {/* Walkie flotante (derecha): la bocinita de arriba indica si alguien está
           transmitiendo AHORA (gris oscuro/negro = hay voz en el aire, gris claro = canal en silencio). */}
-      <div style={{ position: "fixed" as const, right: 24, bottom: 28, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, zIndex: 1000 }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", pointerEvents: "none" as const }}>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={transmitting ? "#111827" : "#94a3b8"} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ filter: transmitting ? "drop-shadow(0 0 6px rgba(17,24,39,0.9))" : "none", transition: "stroke 0.2s" }}>
+      <div style={{ position: "fixed" as const, right: 24, bottom: 28, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, zIndex: 1500 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", pointerEvents: "none" as const, background: "rgba(15,23,42,0.85)", padding: "6px 12px", borderRadius: 12, boxShadow: "0 4px 14px rgba(0,0,0,0.35)" }}>
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke={transmitting ? "#111827" : "#e2e8f0"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ filter: transmitting ? "drop-shadow(0 0 6px rgba(17,24,39,0.9))" : "none", transition: "stroke 0.2s" }}>
             <path d="M11 5 6 9H2v6h4l5 4V5z" />
             <path d="M15.5 8.5a5 5 0 0 1 0 7" />
             <path d="M18.5 5.5a9 9 0 0 1 0 13" />
           </svg>
-          <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.4, color: transmitting ? "#111827" : "#94a3b8", textTransform: "uppercase" }}>
+          <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.4, color: transmitting ? "#111827" : "#e2e8f0", textTransform: "uppercase" }}>
             {transmitting ? "Transmitiendo…" : "En espera"}
           </span>
         </div>
