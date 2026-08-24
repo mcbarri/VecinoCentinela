@@ -82,7 +82,16 @@ def list_locations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Devuelve la última posición de todos los usuarios del sistema (mapa en vivo)."""
+    """Devuelve la última posición de los usuarios en línea (mapa en vivo).
+    Solo aparecen los que están conectados: con heartbeat activo (last_seen
+    reciente) o que publicaron su ubicación hace menos de ONLINE_WINDOW seg.
+    Así el pin desaparece del mapa cuando el usuario se desconecta,
+    igual que desaparece de la tabla de usuarios en verde.
+    """
+    from datetime import timedelta
+
+    ONLINE_WINDOW = timedelta(seconds=90)
+    cutoff = datetime.utcnow() - ONLINE_WINDOW
     rows = db.query(UserLocation).all()
     extra = {}
     for loc in rows:
@@ -91,18 +100,29 @@ def list_locations(
             "role": loc.user.role.name,
             "code": loc.user.code,
         }
-    return [
-        {
-            "user_id": loc.user_id,
-            "full_name": extra.get(loc.user_id, {}).get("name"),
-            "role": extra.get(loc.user_id, {}).get("role"),
-            "code": extra.get(loc.user_id, {}).get("code"),
-            "latitude": float(loc.latitude),
-            "longitude": float(loc.longitude),
-            "updated_at": loc.updated_at.isoformat() if loc.updated_at else None,
-        }
-        for loc in rows
-    ]
+    result = []
+    for loc in rows:
+        # En línea si envió heartbeat reciente (last_seen) o si su ubicación
+        # se actualizó recientemente.
+        last_seen = loc.user.last_seen if loc.user else None
+        loc_ts = loc.updated_at
+        online = (last_seen is not None and last_seen >= cutoff) or (
+            loc_ts is not None and loc_ts >= cutoff
+        )
+        if not online:
+            continue
+        result.append(
+            {
+                "user_id": loc.user_id,
+                "full_name": extra.get(loc.user_id, {}).get("name"),
+                "role": extra.get(loc.user_id, {}).get("role"),
+                "code": extra.get(loc.user_id, {}).get("code"),
+                "latitude": float(loc.latitude),
+                "longitude": float(loc.longitude),
+                "updated_at": loc.updated_at.isoformat() if loc.updated_at else None,
+            }
+        )
+    return result
 
 
 # ─────────────────────────────────────────────

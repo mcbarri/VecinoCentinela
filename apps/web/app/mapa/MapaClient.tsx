@@ -185,6 +185,14 @@ export default function MapaClient() {
         setLiveUsers(data);
         if (leafletRef.current) {
           const L = window.L;
+          // Limpiar marcadores de usuarios que ya no están en línea (pin muerto)
+          const idsPresent = new Set(data.map((u: any) => u.user_id));
+          Object.keys(markersRef.current).forEach((uid) => {
+            if (!idsPresent.has(Number(uid))) {
+              leafletRef.current?.removeLayer(markersRef.current[uid]);
+              delete markersRef.current[uid];
+            }
+          });
           data.forEach((u) => {
             if (u.user_id === undefined) return;
             const isMe = u.user_id === JSON.parse(localStorage.getItem("user") || "{}").id;
