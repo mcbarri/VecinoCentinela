@@ -415,6 +415,7 @@ export default function MapaClient() {
   // Con un único botón: tap corto = armar/apagar; mantener = transmitir.
   const pttPress = () => {
     pressStartRef.current = Date.now();
+    unlockAudio(); // primer toque desbloquea el audio entrante (autoplay)
     // Si está armado y se mantiene el dedo, arranca a transmitir tras 250ms
     pressTimerRef.current = setTimeout(() => {
       if (walkieStateRef.current === "armed") {
@@ -444,6 +445,26 @@ export default function MapaClient() {
   }, [walkieState]);
 
 
+  // Desbloquear audio en el primer gesto del usuario (política de autoplay de
+  // los navegadores móviles: sin interacción previa, audio.play() se bloquea y
+  // el walkie entrante nunca se escucha aunque el WS llegue bien).
+  const unlockAudio = useCallback(() => {
+    try {
+      const a = audioElRef.current;
+      if (!a) return;
+      a.muted = false;
+      a.volume = 1;
+      // Cargar un buffer mudo para «tocar» el elemento y desbloquear el contexto
+      // de audio del navegador (requisito para reproducir el walkie entrante).
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (ctx.state === "suspended") ctx.resume();
+      const src = ctx.createBufferSource();
+      src.buffer = ctx.createBuffer(1, 1, 22050);
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch (e) {}
+  }, []);
+
   // Recibir audio del walkie (del WebSocket broadcast)
   const playAudioChunk = useCallback((b64: string) => {
     if (!audioElRef.current) return;
@@ -454,10 +475,15 @@ export default function MapaClient() {
       const blob = new Blob([bytes], { type: "audio/webm" });
       const url = URL.createObjectURL(blob);
       const audio = audioElRef.current;
+      if (audio.src) URL.revokeObjectURL(audio.src);
       audio.src = url;
-      audio.play().catch(() => {});
+      audio.load();
+      const p = audio.play();
+      if (p && p.catch) p.catch(() => { /* si lo bloquea el navegador, ya se desbloqueó con el gesto */ });
     } catch (e) {}
-    setTimeout(() => URL.revokeObjectURL(audioElRef.current?.src ?? ""), 2000);
+    setTimeout(() => {
+      if (audioElRef.current?.src) URL.revokeObjectURL(audioElRef.current.src);
+    }, 2000);
   }, []);
 
   // Interceptar mensajes de audio en el WS
@@ -488,7 +514,7 @@ export default function MapaClient() {
 
   return (
     <div style={styles.page}>
-      <audio ref={audioElRef} />
+      <audio ref={audioElRef} playsInline muted={false} preload="auto" />
       <div style={styles.topbar}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button style={styles.btnGhost} onClick={() => router.push("/dashboard")}>← Panel</button>
