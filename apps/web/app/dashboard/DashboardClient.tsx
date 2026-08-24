@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
-type Row<T = Record<string, unknown>> = T;
+type Row = Record<string, unknown>;
 
 interface UsersRow {
   id: number;
@@ -46,7 +46,7 @@ function StatCard({ title, value }: { title: string; value: string | number }) {
   );
 }
 
-function DataTable({ title, headers, rows }: { title: string; headers: string[]; rows: Row[][] }) {
+function DataTable({ title, headers, rows }: { title: string; headers: string[]; rows: Row[] }) {
   return (
     <section style={{ background: "white", borderRadius: 18, padding: 18, boxShadow: "0 8px 24px rgba(15,47,87,0.08)" }}>
       <h2 style={{ marginTop: 0, color: "#0f2f57" }}>{title}</h2>
@@ -273,17 +273,17 @@ export default function DashboardClient() {
       <DataTable
         title="Usuarios"
         headers={["ID", "Email", "Nombre", "Rol", "Vecindario"]}
-        rows={users.map((u) => ({ ID: u.id, Email: u.email, Nombre: u.full_name ?? "—", Rol: label[String(u.role_id)] ?? u.role_name ?? "—", Vecindario: u.neighborhood_id ?? "—" })) as Row[][]}
+        rows={users.map((u) => ({ ID: u.id, Email: u.email, Nombre: u.full_name ?? "—", Rol: label[String(u.role_id)] ?? u.role_name ?? "—", Vecindario: u.neighborhood_id ?? "—" })) as Row[]}
       />
       <DataTable
         title="Vecindarios"
         headers={["ID", "Nombre", "Descripción"]}
-        rows={neighborhoods.map((n) => ({ ID: n.id, Nombre: n.name, Descripción: n.description ?? "—" })) as Row[][]}
+        rows={neighborhoods.map((n) => ({ ID: n.id, Nombre: n.name, Descripción: n.description ?? "—" })) as Row[]}
       />
       <DataTable
         title="Incidencias"
         headers={["ID", "Título", "Categoría", "Severidad", "Estado"]}
-        rows={incidents.map((i) => ({ ID: i.id, Título: i.title, Categoría: i.category, Severidad: i.severity, Estado: i.status })) as Row[][]}
+        rows={incidents.map((i) => ({ ID: i.id, Título: i.title, Categoría: i.category, Severidad: i.severity, Estado: i.status })) as Row[]}
       />
 
       {showNbh && (
