@@ -1,46 +1,45 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { API_BASE } from "@/lib/api";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError("");
+    setError(null);
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail ?? "No se pudo iniciar sesión");
-      window.localStorage.setItem("vc_access_token", data.access_token);
-      window.localStorage.setItem("vc_refresh_token", data.refresh_token);
-      window.location.href = "/dashboard";
+      const response = await fetch(`${API_BASE}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim(), password }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "No se pudo iniciar sesión");
+      window.localStorage.setItem("access_token", data.access_token);
+      if (data.refresh_token) window.localStorage.setItem("refresh_token", data.refresh_token);
+      router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo iniciar sesión");
+      setError(err instanceof Error ? err.message : "Error de conexión con el servidor");
     } finally {
       setLoading(false);
     }
   }
 
-  return (
-    <main style={{ padding: 24, maxWidth: 520, margin: "0 auto" }}>
-      <a href="/" style={{ color: "#0f2f57" }}>Vecino Centinela</a>
-      <h1>Iniciar sesión</h1>
-      <form onSubmit={submit} style={{ display: "grid", gap: 12 }}>
-        <label>Correo electrónico<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} style={{ display: "block", width: "100%", padding: 12, borderRadius: 10, border: "1px solid #cbd5e1", marginTop: 6 }} /></label>
-        <label>Contraseña<input required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Contraseña" type="password" style={{ display: "block", width: "100%", padding: 12, borderRadius: 10, border: "1px solid #cbd5e1", marginTop: 6 }} /></label>
-        {error && <p style={{ color: "#b91c1c", margin: 0 }}>{error}</p>}
-        <button disabled={loading} type="submit" style={{ padding: 14, borderRadius: 10, background: "#1d67b1", color: "white", border: 0, cursor: "pointer" }}>{loading ? "Entrando..." : "Entrar"}</button>
-      </form>
-    </main>
-  );
+  return <main style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #0f2f57, #1d67b1)", padding: 16 }}>
+    <form onSubmit={handleSubmit} style={{ width: "100%", maxWidth: 400, padding: 32, borderRadius: 20, background: "white", boxShadow: "0 16px 40px rgba(0,0,0,0.25)", display: "grid", gap: 16 }}>
+      <h1 style={{ margin: 0, color: "#0f2f57", fontSize: 26 }}>Vecino Centinela</h1>
+      <p style={{ margin: 0, color: "#475569" }}>Inicia sesión para continuar</p>
+      <input required type="email" placeholder="Correo electrónico" value={email} onChange={(event) => setEmail(event.target.value)} style={inputStyle} />
+      <input required type="password" placeholder="Contraseña" value={password} onChange={(event) => setPassword(event.target.value)} style={inputStyle} />
+      {error && <p style={{ margin: 0, padding: 10, borderRadius: 8, background: "#fef2f2", color: "#b91c1c", fontSize: 14 }}>{error}</p>}
+      <button type="submit" disabled={loading} style={{ padding: 14, borderRadius: 10, background: "#0f2f57", color: "white", border: 0, fontSize: 16, fontWeight: 600, cursor: loading ? "wait" : "pointer" }}>{loading ? "Entrando..." : "Entrar"}</button>
+    </form>
+  </main>;
 }
+
+const inputStyle = { padding: 12, borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 15, width: "100%" } as const;

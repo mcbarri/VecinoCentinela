@@ -1,0 +1,67 @@
+# =============================================
+# VECINO CENTINELA — docker-compose (PRODUCCIÓN)
+# Bloque de puertos: 7240-7249
+#   api       → 127.0.0.1:7240:8000 (FastAPI)
+#   web       → 127.0.0.1:7241:3000 (Next.js prod)
+#   postgres  → 127.0.0.1:7242:5432 (loopback)
+#   redis     → 127.0.0.1:7243:6379 (loopback)
+# Deploy: vecinocentinela.iasgt.com
+# Creado: 23 Ago 2026 por Magdi 🪲
+# =============================================
+name: vecinocentinela
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    container_name: vecinocentinela_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:7240:8000"
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.prod.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    container_name: vecinocentinela_web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7241:3000"
+    depends_on:
+      - api
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: vecinocentinela_db
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7242:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - vecino_pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: vecinocentinela_redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7243:6379"
+
+volumes:
+  vecino_pgdata:
