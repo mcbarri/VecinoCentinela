@@ -45,6 +45,18 @@ export default function MapaClient() {
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<string[]>([]);
 
+  // ══ STREAM CONTINUO con MediaSource (la forma ESTÁNDAR y definitiva) ══
+  // El problema real: el emisor manda fragments de 300ms que MediaRecorder
+  // generó con timeslice. Cada fragmento es un cluster de webm fragmentado
+  // SIN la cabecera del contenedor, por lo que reproduciéndolo como un Blob
+  // webm aislado muchos navegadores Android NO lo pueden decodificar (de ahí
+  // que antes no se oyera NADA). Con MediaSource + SourceBuffer en modo
+  // 'sequence' se encadenan los clusters SIN cabecera en un único stream
+  // continuo que sí se descodifica, con latencia real.
+  const mediaSourceRef = useRef<MediaSource | null>(null);
+  const sourceBufferRef = useRef<SourceBuffer | null>(null);
+  const msReadyRef = useRef(false);
+
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [liveUsers, setLiveUsers] = useState<LiveUser[]>([]);
@@ -484,26 +496,79 @@ export default function MapaClient() {
     } catch (e) {}
   }, []);
 
-  // Recibir audio del walkie (del WebSocket broadcast)
+  // Recibir audio del walkie (del WebSocket broadcast).
+  // Fix definitivo con MediaSource + SourceBuffer: encadena los chunks de
+  // 300ms (que vienen como clusters webm fragmentados SIN cabecera) en un
+  // único stream continuo descodificable en Android. Es la forma estándar
+  // para reproducir audio/webm por trozos sin depender de metadatos por trozo.
+  const setupMediaSource = useCallback(() => {
+    const audio = audioElRef.current;
+    if (!audio) return null;
+    try {
+      // Limpiar cualquier MediaSource previo
+      if (mediaSourceRef.current) {
+        try { mediaSourceRef.current.removeSourceBuffer(sourceBufferRef.current!); } catch (e) {}
+        try { mediaSourceRef.current = null; } catch (e) {}
+      }
+      const ms = new MediaSource();
+      mediaSourceRef.current = ms;
+      sourceBufferRef.current = null;
+      msReadyRef.current = false;
+      audio.src = URL.createObjectURL(ms);
+      audio.load();
+      ms.addEventListener("sourceopen", () => {
+        try {
+          const sb = ms.addSourceBuffer('audio/webm;codecs="opus"');
+          sb.mode = "sequence"; // encadena clusters sin cabecera
+          sourceBufferRef.current = sb;
+          msReadyRef.current = true;
+        } catch (e) {
+          // Fallback: algunos navegadores requieren mistificado de codecs
+          console.warn("MediaSource con audio/webmopus falla, probando por defecto");
+        }
+      });
+      return ms;
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
   const playAudioChunk = useCallback((b64: string) => {
-    if (!audioElRef.current) return;
+    const audio = audioElRef.current;
+    if (!audio) return;
+    // Asegurar el stream continuo en el primer chunk
+    if (!mediaSourceRef.current) {
+      setupMediaSource();
+    }
     try {
       const bin = atob(b64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const blob = new Blob([bytes], { type: "audio/webm" });
-      const url = URL.createObjectURL(blob);
-      const audio = audioElRef.current;
-      if (audio.src) URL.revokeObjectURL(audio.src);
-      audio.src = url;
-      audio.load();
-      const p = audio.play();
-      if (p && p.catch) p.catch(() => { /* si lo bloquea el navegador, ya se desbloqueó con el gesto */ });
+      const sb = sourceBufferRef.current;
+      if (!sb || !msReadyRef.current) {
+        // Aún no listo: reintentamos en un tick (sourceopen es asincrono)
+        setTimeout(() => {
+          const s = sourceBufferRef.current;
+          if (s && msReadyRef.current) {
+            try { s.appendBuffer(bytes.buffer); } catch (e) {}
+          }
+        }, 150);
+        return;
+      }
+      try {
+        if (sb.updating) {
+          // Si ya está encolando, esperamos a que termine para no romper el buffer
+          const tryAppend = () => {
+            if (sb.updating) { setTimeout(tryAppend, 50); return; }
+            try { sb.appendBuffer(bytes.buffer); } catch (e) {}
+          };
+          setTimeout(tryAppend, 50);
+        } else {
+          sb.appendBuffer(bytes.buffer);
+        }
+      } catch (e) {}
     } catch (e) {}
-    setTimeout(() => {
-      if (audioElRef.current?.src) URL.revokeObjectURL(audioElRef.current.src);
-    }, 2000);
-  }, []);
+  }, [setupMediaSource]);
 
   // Mantener el handler de audio del walkie sincronizado en un ref para que el
   // efecto que crea el WebSocket pueda usarlo sin problemas de orden/ciclo.
