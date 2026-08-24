@@ -107,18 +107,26 @@ def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    # Permisos: superadmin edita a cualquiera; leader edita a su vecindario (no a otro líder/superadmin)
+    data = payload.model_dump(exclude_unset=True)
+
+    # Permisos: superadmin edita a cualquiera;
+    # leader edita a sentinelas y líderes DE SU vecindario (no a superadmin, no a otros vecindarios)
     is_superadmin = current_user.role.name == "superadmin"
     is_leader = current_user.role.name == "leader"
     if not (is_superadmin or is_leader):
         raise HTTPException(status_code=403, detail="No autorizado")
     if is_leader:
-        if user.role.name == "superadmin" or user.role.name == "leader":
+        # Un líder jamás puede tocar al superadmin (cuenta maestra)
+        if user.role.name == "superadmin":
             raise HTTPException(status_code=403, detail="No autorizado")
-        if current_user.neighborhood_id and user.neighborhood_id != current_user.neighborhood_id:
+        # El líder solo puede gestionar usuarios de SU vecindario
+        if user.neighborhood_id and current_user.neighborhood_id and user.neighborhood_id != current_user.neighborhood_id:
             raise HTTPException(status_code=403, detail="No autorizado: usuario fuera de tu vecindario")
+        # Si el líder intenta cambiar de vecindario a alguien, debe ser hacia SU vecindario
+        new_nb = data.get("neighborhood_id")
+        if new_nb and current_user.neighborhood_id and new_nb != current_user.neighborhood_id:
+            raise HTTPException(status_code=403, detail="No autorizado: no puedes asignar otro vecindario")
 
-    data = payload.model_dump(exclude_unset=True)
     if "role_id" in data:
         _assert_can_assign(current_user, data["role_id"])
     for key, value in data.items():
