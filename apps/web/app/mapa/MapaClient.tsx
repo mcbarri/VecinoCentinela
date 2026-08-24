@@ -144,7 +144,18 @@ export default function MapaClient() {
     (async () => {
       try {
         const L = await ensureLeaflet();
-        const map = L.map(mapRef.current!).setView([14.6349, -90.5069], 12); // Guatemala central
+        const container = mapRef.current!;
+        // Evitar «Map container is already initialized»: si ya había una instancia
+        // Leaflet viva sobre este contenedor (p.ej. doble mount de React StrictMode
+        // o navegación rápida), limpiarla de verdad antes de recrear el mapa.
+        if (leafletRef.current) {
+          try { leafletRef.current.remove(); } catch (e) {}
+          leafletRef.current = null;
+        }
+        if ((container as any)._leaflet_id != null) {
+          try { (container as any)._leaflet_id = null; } catch (e) {}
+        }
+        const map = L.map(container).setView([14.6349, -90.5069], 12); // Guatemala central
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           attribution: "&copy; OpenStreetMap contributors",
         }).addTo(map);
