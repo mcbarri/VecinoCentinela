@@ -173,6 +173,21 @@ export default function MapaClient() {
     []
   );
 
+  // Centrar el mapa en TODOS los usuarios del vecindario (maximizar para verlos a todos)
+  const fitAllUsers = useCallback(() => {
+    const map = leafletRef.current;
+    if (!map) return;
+    const pts: [number, number][] = liveUsers
+      .filter((u) => u.latitude != null && u.longitude != null)
+      .map((u) => [u.latitude as number, u.longitude as number]);
+    if (pts.length === 0) return;
+    if (pts.length === 1) {
+      map.setView(pts[0], 16);
+    } else {
+      map.fitBounds(pts, { padding: [60, 60], maxZoom: 16 });
+    }
+  }, [liveUsers]);
+
   // Activar geolocalización continua
   useEffect(() => {
     if (!mapInit || !token) return;
@@ -423,7 +438,7 @@ export default function MapaClient() {
       </div>
 
       <div style={styles.panel}>
-        <h3 style={styles.panelTitle}>👥 Usuarios del vecindario ({liveUsers.length})</h3>
+        <h3 onClick={fitAllUsers} title="Ver todos los usuarios en el mapa" style={{ ...styles.panelTitle, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>👥 Usuarios del vecindario ({liveUsers.length}) <span style={{ fontSize: 11, fontWeight: 600, color: "#2563eb" }}>Maximizar 🔍</span></h3>
         {liveUsers.length === 0 ? (
           <p style={{ color: "#94a3b8" }}>No hay usuarios con ubicación registrada en tu vecindario.</p>
         ) : (
