@@ -127,6 +127,11 @@ export default function MapaClient() {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
       setMyPos({ lat, lng });
+      if (leafletRef.current && !leafletRef.current.__centeredOnMe) {
+        // Centrar el mapa en la ubicación REAL del usuario (no en el centro por defecto)
+        leafletRef.current.setView([lat, lng], 15);
+        leafletRef.current.__centeredOnMe = true;
+      }
       if (leafletRef.current) {
         const L = window.L;
         if (!markersRef.current["me"]) {

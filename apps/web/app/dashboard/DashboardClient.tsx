@@ -112,6 +112,7 @@ function Modal({ title, onClose, children, onSave, saving }: {
 export default function DashboardClient() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
+  const [me, setMe] = useState<{ full_name?: string | null; role?: string | null } | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [users, setUsers] = useState<UsersRow[]>([]);
   const [neighborhoods, setNeighborhoods] = useState<NeighborhoodRow[]>([]);
@@ -146,12 +147,14 @@ export default function DashboardClient() {
 
   const load = useCallback(async () => {
     try {
-      const [s, u, n, i] = await Promise.all([
+      const [m, s, u, n, i] = await Promise.all([
+        api("/me"),
         api("/dashboard/summary"),
         api("/users"),
         api("/neighborhoods"),
         api("/incidents"),
       ]);
+      setMe(m);
       setSummary(s);
       setUsers(u ?? []);
       setNeighborhoods(n ?? []);
@@ -251,6 +254,7 @@ export default function DashboardClient() {
     }
   };
 
+  const isSuperadmin = me?.role === "superadmin";
   const label = { "28": "Super Admin", "29": "Líder", "30": "Centinela" } as Record<string, string>;
 
   return (
@@ -261,6 +265,17 @@ export default function DashboardClient() {
           <p style={{ margin: 0, color: "#475569" }}>Vista operativa de Vecino Centinela.</p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          {me?.full_name && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "white", padding: "6px 12px 6px 6px", borderRadius: 40, boxShadow: "0 4px 14px rgba(0,0,0,0.08)" }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#0f2f57", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15 }}>
+                {(me.full_name || "U").trim().charAt(0).toUpperCase()}
+              </div>
+              <div style={{ lineHeight: 1.1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: "#0f2f57" }}>{me.full_name}</div>
+                <div style={{ fontSize: 12, color: "#64748b" }}>{me.role === "superadmin" ? "Súper administrador" : me.role === "leader" ? "Líder" : me.role === "sentinel" ? "Centinela" : me.role}</div>
+              </div>
+            </div>
+          )}
           <button onClick={() => router.push("/mapa")} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "#0f2f57", color: "#fff", cursor: "pointer", fontWeight: 600 }}>
             🗺️ Mapa en Vivo
           </button>
@@ -280,9 +295,15 @@ export default function DashboardClient() {
       </section>
 
       <section style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button onClick={() => setShowNbh(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#0f2f57", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nuevo Vecindario</button>
-        <button onClick={() => setShowUser(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#2563eb", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nuevo Usuario</button>
-        <button onClick={() => setShowInc(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#d97706", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nueva Incidencia</button>
+        {isSuperadmin && (
+          <button onClick={() => setShowNbh(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#0f2f57", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nuevo Vecindario</button>
+        )}
+        {isSuperadmin && (
+          <button onClick={() => setShowUser(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#2563eb", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nuevo Usuario</button>
+        )}
+        {(isSuperadmin || me?.role === "leader") && (
+          <button onClick={() => setShowInc(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#d97706", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nueva Incidencia</button>
+        )}
       </section>
 
       <DataTable
