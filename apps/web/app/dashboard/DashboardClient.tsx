@@ -37,6 +37,24 @@ interface IncidentRow {
   status?: string;
   neighborhood_id?: number;
 }
+interface RouteAssignmentRow {
+  id: number;
+  route_id: number;
+  assigned_user_id: number;
+  assigned_user_name?: string | null;
+  days_of_week: number[];
+  start_time?: string | null;
+  end_time?: string | null;
+}
+interface RouteRow {
+  id: number;
+  user_id: number;
+  user_name?: string | null;
+  name?: string | null;
+  points: number[][];
+  created_at?: string | null;
+  assignments?: RouteAssignmentRow[];
+}
 interface Summary {
   total_users: number;
   total_leaders: number;
@@ -97,6 +115,14 @@ const fieldStyle: React.CSSProperties = {
   fontSize: 14,
 };
 
+const DIAS_SEMANA = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+
+function dayNames(days: number[]): string {
+  if (!days || days.length === 0) return "Sin días";
+  if (days.length === 7) return "Todos los días";
+  return days.sort((a, b) => a - b).map((d) => DIAS_SEMANA[d] ?? `Día ${d}`).join(", ");
+}
+
 function Modal({ title, onClose, children, onSave, saving }: {
   title: string; onClose: () => void; children: React.ReactNode; onSave: () => void; saving: boolean;
 }) {
@@ -124,12 +150,14 @@ export default function DashboardClient() {
   const [users, setUsers] = useState<UsersRow[]>([]);
   const [neighborhoods, setNeighborhoods] = useState<NeighborhoodRow[]>([]);
   const [incidents, setIncidents] = useState<IncidentRow[]>([]);
+  const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // modales
   const [showUser, setShowUser] = useState(false);
   const [showNbh, setShowNbh] = useState(false);
   const [showInc, setShowInc] = useState(false);
+  const [showRoutes, setShowRoutes] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [editUser, setEditUser] = useState<UsersRow | null>(null);
   const [saving, setSaving] = useState(false);
@@ -139,6 +167,9 @@ export default function DashboardClient() {
   const [nform, setNform] = useState({ name: "", description: "" });
   const [iform, setIform] = useState({ title: "", description: "", category: "", severity: "media", neighborhood_id: "" });
   const [pform, setPform] = useState({ full_name: "", phone: "" });
+  // rutas / asignación
+  const [aform, setAform] = useState({ route_id: "", assigned_user_id: "", days: [false, false, false, false, false, false, false], start_time: "09:00", end_time: "13:00" });
+  const [routeMsg, setRouteMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const api = useCallback(async (path: string, opts: RequestInit = {}) => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -157,18 +188,20 @@ export default function DashboardClient() {
 
   const load = useCallback(async () => {
     try {
-      const [m, s, u, n, i] = await Promise.all([
+      const [m, s, u, n, i, rr] = await Promise.all([
         api("/me"),
         api("/dashboard/summary"),
         api("/users"),
         api("/neighborhoods"),
         api("/incidents"),
+        api("/realtime/patrol-routes").catch(() => []),
       ]);
       setMe(m);
       setSummary(s);
       setUsers(u ?? []);
       setNeighborhoods(n ?? []);
       setIncidents(i ?? []);
+      setRoutes(rr ?? []);
       if (m.onboarding_complete === false && m.role !== "superadmin") {
         router.push("/onboarding");
         return;
@@ -274,6 +307,52 @@ export default function DashboardClient() {
       setSaving(false);
     }
   };
+
+  // ─── Rutas de patrulla: asignación + horarios ───
+  const assignRoute = async () => {
+    if (!aform.route_id) {
+      setRouteMsg({ type: "err", text: "Selecciona una ruta para asignar." });
+      return;
+    }
+    if (!aform.assigned_user_id) {
+      setRouteMsg({ type: "err", text: "Selecciona a quién se asigna la ruta." });
+      return;
+    }
+    const days = aform.days.map((d, i) => (d ? i : -1)).filter((d) => d >= 0);
+    if (days.length === 0) {
+      setRouteMsg({ type: "err", text: "Marca al menos un día de la semana." });
+      return;
+    }
+    setSaving(true);
+    setRouteMsg(null);
+    try {
+      await api(`/realtime/patrol-routes/${aform.route_id}/assign`, {
+        method: "POST",
+        body: JSON.stringify({ assigned_user_id: Number(aform.assigned_user_id), days_of_week: days, start_time: aform.start_time, end_time: aform.end_time }),
+      });
+      setRouteMsg({ type: "ok", text: "✅ Ruta asignada correctamente." });
+      setAform((f) => ({ ...f, assigned_user_id: "", days: [false, false, false, false, false, false, false] }));
+      await load();
+    } catch (e) {
+      // El backend devuelve 409 con el detalle del conflicto de horario
+      const msg = (e as Error).message || "No se pudo asignar la ruta.";
+      setRouteMsg({ type: "err", text: `⚠️ ${msg}` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const unassignRoute = async (assignment: RouteAssignmentRow) => {
+    if (!window.confirm(`¿Quitar la ruta de ${assignment.assigned_user_name || "este usuario"}?`)) return;
+    try {
+      await api(`/realtime/patrol-routes/assignments/${assignment.id}`, { method: "DELETE" });
+      setRouteMsg({ type: "ok", text: "✅ Asignación eliminada." });
+      await load();
+    } catch (e) {
+      setRouteMsg({ type: "err", text: `⚠️ ${(e as Error).message}` });
+    }
+  };
+
 
   const isSuperadmin = me?.role === "superadmin";
   const isLeader = me?.role === "leader";
@@ -418,6 +497,9 @@ export default function DashboardClient() {
         )}
         {(isSuperadmin || me?.role === "leader") && (
           <button onClick={() => setShowInc(true)} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#d97706", color: "white", cursor: "pointer", fontWeight: 600 }}>➕ Nueva Incidencia</button>
+        )}
+        {(isSuperadmin || isLeader) && (
+          <button onClick={() => { setShowRoutes(true); setRouteMsg(null); }} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#117f5f", color: "white", cursor: "pointer", fontWeight: 600 }}>🛤️ Rutas de patrulla</button>
         )}
       </section>
 
@@ -598,6 +680,100 @@ export default function DashboardClient() {
             </button>
           )}
         </Modal>
+      )}
+
+      {showRoutes && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div style={{ background: "white", borderRadius: 18, padding: 24, width: "100%", maxWidth: 760, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <h2 style={{ marginTop: 0, color: "#0f2f57" }}>🛤️ Rutas de patrulla</h2>
+              <button onClick={() => setShowRoutes(false)} style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid #cbd5e1", background: "white", cursor: "pointer", color: "#334155" }}>✕ Cerrar</button>
+            </div>
+            <p style={{ color: "#475569", marginTop: 0 }}>Asigna cada ruta a un líder o centinela con su horario. Se valida que no se repita el mismo horario para la misma persona.</p>
+
+            {routeMsg && (
+              <div style={{ padding: "12px 14px", borderRadius: 10, marginBottom: 14, fontSize: 14, fontWeight: 500, background: routeMsg.type === "ok" ? "#f0fdf4" : "#fef2f2", color: routeMsg.type === "ok" ? "#166534" : "#b91c1c", border: `1px solid ${routeMsg.type === "ok" ? "#bbf7d0" : "#fecaca"}` }}>
+                {routeMsg.text}
+              </div>
+            )}
+
+            {/* ── Formulario de asignación ── */}
+            <div style={{ background: "#f8fafc", borderRadius: 14, padding: 16, marginBottom: 20 }}>
+              <h3 style={{ marginTop: 0, color: "#0f2f57" }}>Asignar ruta</h3>
+              <label style={{ fontSize: 13, color: "#334155" }}>Ruta</label>
+              <select style={fieldStyle} value={aform.route_id} onChange={(e) => setAform((f) => ({ ...f, route_id: e.target.value }))}>
+                <option value="">— Seleccionar ruta —</option>
+                {routes.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name || `Ruta #${r.id}`} ({r.points?.length ?? 0} ptos)</option>
+                ))}
+              </select>
+              <label style={{ fontSize: 13, color: "#334155" }}>Asignar a (Líder / Centinela)</label>
+              <select style={fieldStyle} value={aform.assigned_user_id} onChange={(e) => setAform((f) => ({ ...f, assigned_user_id: e.target.value }))}>
+                <option value="">— Seleccionar persona —</option>
+                {users
+                  .filter((u) => u.role_name === "leader" || u.role_name === "centinel" || u.role_id === 29 || u.role_id === 30)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>{u.full_name || u.email} {u.code ? `· ${u.code}` : ""}</option>
+                  ))}
+              </select>
+              <label style={{ fontSize: 13, color: "#334155" }}>Días de la semana</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12, marginTop: 4 }}>
+                {DIAS_SEMANA.map((d, i) => (
+                  <label key={i} style={{ display: "flex", alignItems: "center", gap: 5, background: aform.days[i] ? "#dcfce7" : "#fff", border: `1px solid ${aform.days[i] ? "#4ade80" : "#cbd5e1"}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 13, color: "#334155" }}>
+                    <input type="checkbox" checked={aform.days[i]} onChange={(e) => setAform((f) => ({ ...f, days: f.days.map((v, idx) => (idx === i ? e.target.checked : v)) }))} style={{ margin: 0 }} />
+                    {d}
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 120 }}>
+                  <label style={{ fontSize: 13, color: "#334155" }}>Hora inicio</label>
+                  <input type="time" style={fieldStyle} value={aform.start_time} onChange={(e) => setAform((f) => ({ ...f, start_time: e.target.value }))} />
+                </div>
+                <div style={{ flex: 1, minWidth: 120 }}>
+                  <label style={{ fontSize: 13, color: "#334155" }}>Hora fin</label>
+                  <input type="time" style={fieldStyle} value={aform.end_time} onChange={(e) => setAform((f) => ({ ...f, end_time: e.target.value }))} />
+                </div>
+              </div>
+              <button onClick={assignRoute} disabled={saving} style={{ padding: "11px 18px", borderRadius: 10, border: "none", background: "#117f5f", color: "white", cursor: "pointer", fontWeight: 600 }}>
+                {saving ? "Asignando…" : "📌 Asignar ruta"}
+              </button>
+            </div>
+
+            {/* ── Lista de rutas con sus asignaciones ── */}
+            {routes.length === 0 ? (
+              <p style={{ color: "#94a3b8" }}>Aún no hay rutas creadas. Traza una en el mapa (botón 🛤️ Ruta de patrulla) y luego asígnala aquí.</p>
+            ) : (
+              routes.map((r) => (
+                <div key={r.id} style={{ border: "1px solid #e2e8f0", borderRadius: 14, padding: 14, marginBottom: 12, background: "#fff" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                    <div>
+                      <strong style={{ color: "#0f2f57", fontSize: 16 }}>{r.name || `Ruta #${r.id}`}</strong>
+                      <div style={{ fontSize: 13, color: "#94a3b8" }}>Creada por {r.user_name || `#${r.user_id}`} · {r.points?.length ?? 0} puntos</div>
+                    </div>
+                  </div>
+                  {(r.assignments ?? []).length === 0 ? (
+                    <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 10 }}>Sin asignar</div>
+                  ) : (
+                    <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                      {(r.assignments ?? []).map((a) => (
+                        <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "#f8fafc", borderRadius: 10, padding: "8px 12px", flexWrap: "wrap" }}>
+                          <div style={{ fontSize: 14, color: "#334155" }}>
+                            <strong>{a.assigned_user_name || `#${a.assigned_user_id}`}</strong> — {dayNames(a.days_of_week)},
+                            {" "}{a.start_time || "—"} a {a.end_time || "—"}
+                          </div>
+                          <button onClick={() => unassignRoute(a)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #fecaca", background: "#fff5f5", color: "#b91c1c", cursor: "pointer", fontSize: 12 }}>
+                            🗑️ Quitar
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       )}
     </main>
   );

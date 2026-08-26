@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, status
 from sqlalchemy.orm import Session
@@ -8,6 +8,7 @@ from app.api.v1.auth import get_current_user
 from app.api.v1.deps import get_db
 from app.api.v1.permissions import require_roles
 from app.models.patrol_route import PatrolRoute
+from app.models.patrol_route_assignment import PatrolRouteAssignment
 from app.models.presence_event import PresenceEvent
 from app.models.shift import Shift
 from app.models.user import User
@@ -18,6 +19,7 @@ from app.schemas.realtime import (
     LocationPublish,
     PatrolRouteCreate,
     PresenceEventCreate,
+    RouteAssignmentCreate,
     ShiftCreate,
     ShiftUpdate,
 )
@@ -343,6 +345,8 @@ def create_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Solo líderes (y superadmin) pueden crear rutas de patrulla
+    require_roles(current_user, {"superadmin", "leader"})
     if len(payload.points) < 2:
         raise HTTPException(status_code=400, detail="La ruta necesita al menos 2 puntos")
     route = PatrolRoute(
@@ -361,18 +365,24 @@ def list_routes(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    rows = db.query(PatrolRoute).all()
-    return [
-        {
-            "id": r.id,
-            "user_id": r.user_id,
-            "user_name": r.user.full_name if r.user else None,
-            "name": r.name,
-            "points": json.loads(r.points),
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
-        for r in rows
-    ]
+    rows = db.query(PatrolRoute).order_by(PatrolRoute.id.desc()).all()
+    result = []
+    for r in rows:
+        assignments = []
+        for a in r.assignments:
+            assignments.append(_assignment_to_dict(a))
+        result.append(
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "user_name": r.user.full_name if r.user else None,
+                "name": r.name,
+                "points": json.loads(r.points),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "assignments": assignments,
+            }
+        )
+    return result
 
 
 @router.delete("/patrol-routes/{route_id}")
@@ -381,12 +391,163 @@ def delete_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    require_roles(current_user, {"superadmin", "leader"})
     route = db.get(PatrolRoute, route_id)
     if not route:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
-    if route.user_id != current_user.id and current_user.role.name not in ("superadmin", "leader"):
-        raise HTTPException(status_code=403, detail="No autorizado")
+    if route.user_id != current_user.id and current_user.role.name != "superadmin":
+        raise HTTPException(status_code=403, detail="No autorizado para eliminar esta ruta")
     db.delete(route)
+    db.commit()
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────
+# ASIGNACIÓN DE RUTAS (v2 — McBarri 26 Ago 2026)
+# ─────────────────────────────────────────────
+
+
+def _assignment_to_dict(a: PatrolRouteAssignment) -> dict:
+    return {
+        "id": a.id,
+        "route_id": a.route_id,
+        "assigned_user_id": a.assigned_user_id,
+        "assigned_user_name": a.assigned_user.full_name if a.assigned_user else None,
+        "days_of_week": json.loads(a.days_of_week) if a.days_of_week else [],
+        "start_time": a.start_time.strftime("%H:%M") if a.start_time else None,
+        "end_time": a.end_time.strftime("%H:%M") if a.end_time else None,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+    }
+
+
+_DIA_NOMBRE = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+
+
+def _times_overlap(a_start: time, a_end: time, b_start: time, b_end: time) -> bool:
+    """True si dos rangos horarios se solapan (contemplando cruce de medianoche).
+
+    Convierte a minutos desde 00:00. Si un rango cruza medianoche (end <= start),
+    su end se desplaza +24h. Compara B tanto en su día base como desplazado +24h
+    para cubrir solapes con rangos que cruzan medianoche.
+    """
+    def norm(s: time, e: time):
+        sm = s.hour * 60 + s.minute
+        em = e.hour * 60 + e.minute
+        if em <= sm:
+            em += 1440
+        return sm, em
+
+    ax, ay = norm(a_start, a_end)
+    bx, by = norm(b_start, b_end)
+    # El rango A puede extenderse hasta +48h (si cruza medianoche).
+    # Probamos B anclado: en su día base y desplazado +24h.
+    for shift in (0, 1440):
+        bs2, be2 = bx + shift, by + shift
+        if ax < be2 and bs2 < ay:
+            return True
+    return False
+
+
+def _day_names(days: list[int]) -> str:
+    if not days:
+        return "sin días"
+    if len(days) == 7:
+        return "todos los días"
+    return ", ".join(_DIA_NOMBRE[d] for d in sorted(days) if 0 <= d <= 6)
+
+
+@router.post("/patrol-routes/{route_id}/assign")
+def assign_route(
+    route_id: int,
+    payload: RouteAssignmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_roles(current_user, {"superadmin", "leader"})
+
+    route = db.get(PatrolRoute, route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+
+    assigned = db.get(User, payload.assigned_user_id)
+    if not assigned:
+        raise HTTPException(status_code=404, detail="Usuario asignado no encontrado")
+    # Solo se asigna a líderes o centinelas
+    role_name = assigned.role.name if assigned.role else None
+    if role_name not in ("leader", "sentinel"):
+        raise HTTPException(status_code=400, detail="La ruta solo puede asignarse a un Líder o Centinela")
+
+    # Validar días
+    if not payload.days_of_week:
+        raise HTTPException(status_code=400, detail="Indica al menos un día de la semana para la ruta")
+    invalid = [d for d in payload.days_of_week if d < 0 or d > 6]
+    if invalid:
+        raise HTTPException(status_code=400, detail="Días de la semana inválidos (usa 0-6, 0=Lunes)")
+
+    # Validar solapamiento horario para el mismo usuario (cualquier OTRA ruta)
+    new_days = set(payload.days_of_week)
+    existing = db.query(PatrolRouteAssignment).filter(
+        PatrolRouteAssignment.assigned_user_id == payload.assigned_user_id,
+    ).all()
+    # Excluir asignaciones de esta misma ruta (para no auto-chocar al reasignar)
+    existing = [a for a in existing if a.route_id != route_id]
+
+    for a in existing:
+        a_days = set(json.loads(a.days_of_week) if a.days_of_week else [])
+        share_day = a_days & new_days
+        if share_day:
+            overlap = _times_overlap(payload.start_time, payload.end_time, a.start_time, a.end_time)
+            if overlap:
+                dia = _DIA_NOMBRE[sorted(share_day)[0]]
+                otra_ruta = db.get(PatrolRoute, a.route_id)
+                otra_nombre = otra_ruta.name if otra_ruta else "otra ruta"
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Conflicto de horario: {assigned.full_name or ('el usuario ' + str(assigned.id))} "
+                        f"ya tiene asignada la ruta '{otra_nombre}' los {_day_names(sorted(a_days))} "
+                        f"de {a.start_time.strftime('%H:%M')} a {a.end_time.strftime('%H:%M')}. "
+                        f"Elige otro horario o días que no choquen."
+                    ),
+                )
+
+    assignment = PatrolRouteAssignment(
+        route_id=route_id,
+        assigned_user_id=payload.assigned_user_id,
+        days_of_week=json.dumps(sorted(set(payload.days_of_week))),
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+    )
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    return _assignment_to_dict(assignment)
+
+
+@router.get("/patrol-routes/{route_id}/assignments")
+def list_route_assignments(
+    route_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    route = db.get(PatrolRoute, route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    return [_assignment_to_dict(a) for a in db.query(PatrolRouteAssignment)
+            .filter(PatrolRouteAssignment.route_id == route_id).all()]
+
+
+@router.delete("/patrol-routes/assignments/{assignment_id}")
+def delete_route_assignment(
+    assignment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_roles(current_user, {"superadmin", "leader"})
+    assignment = db.get(PatrolRouteAssignment, assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+    db.delete(assignment)
     db.commit()
     return {"ok": True}
 

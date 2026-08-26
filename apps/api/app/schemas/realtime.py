@@ -85,6 +85,24 @@ class PatrolRouteCreate(BaseModel):
     points: list[list[float]]  # [[lat, lng], ...]
 
 
+class RouteAssignmentCreate(BaseModel):
+    assigned_user_id: int
+    days_of_week: list[int]  # [0-6] 0=Lunes ... 6=Domingo
+    start_time: time
+    end_time: time
+
+
+class RouteAssignmentRead(BaseModel):
+    id: int
+    route_id: int
+    assigned_user_id: int
+    assigned_user_name: str | None = None
+    days_of_week: list[int]
+    start_time: str
+    end_time: str
+    created_at: str | None = None
+
+
 class PatrolRouteRead(BaseModel):
     id: int
     user_id: int
@@ -92,3 +110,4 @@ class PatrolRouteRead(BaseModel):
     name: str | None = None
     points: list[list[float]]
     created_at: str | None = None
+    assignments: list[RouteAssignmentRead] = []
