@@ -36,6 +36,11 @@ export default function MapaClient() {
   const markersRef = useRef<Record<string, any>>({});
   const incidentMarkersRef = useRef<Record<string, any>>({});
   const routeLayerRef = useRef<any>(null);
+  // Rutas guardadas de patrulla (todas) — layer separado del trazo local
+  const savedRoutesLayerRef = useRef<any>(null);
+  const [savedRoutes, setSavedRoutes] = useState<any[]>([]);
+  const [myId, setMyId] = useState<number | null>(null);
+  const [myRole, setMyRole] = useState<string | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   // Handler de audio regrabable: al crear/reconectar el WS se asigna a onmessage
   // para que el walkie entrante SIEMPRE se maneje, sin depender de otro efecto
@@ -185,6 +190,8 @@ export default function MapaClient() {
         if (res.ok) {
           const data = await res.json();
           if (data?.full_name) setMyName(data.full_name);
+          if (data?.id) setMyId(Number(data.id));
+          if (data?.role) setMyRole(data.role);
         }
       } catch (e) {}
     })();
@@ -216,6 +223,7 @@ export default function MapaClient() {
         ).addTo(map);
         leafletRef.current = map;
         routeLayerRef.current = L.layerGroup().addTo(map);
+        savedRoutesLayerRef.current = L.layerGroup().addTo(map);
 
         map.on("click", (e: any) => {
           if (!drawingRoute) return;
@@ -289,6 +297,70 @@ export default function MapaClient() {
     }
   }, [liveUsers]);
 
+  // ── Utilidades de día/hora para saber si una ruta está ACTIVA ahora ──
+  const _hmToMin = (t?: string): number | null => {
+    if (!t) return null;
+    const [h, m] = t.split(":").map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
+  };
+  // 0=Lunes (normaliza getDay(): 0=Domingo → ((d+6)%7))
+  const todayNorm = (new Date().getDay() + 6) % 7;
+  // true si el turno (days_of_week + start..end, pudiendo cruzar medianoche) cubre AHORA
+  const _isRouteActiveNow = (a: any): boolean => {
+    if (!a) return false;
+    const days: number[] = Array.isArray(a.days_of_week) ? a.days_of_week : [];
+    if (!days.includes(todayNorm)) return false;
+    const start = _hmToMin(a.start_time);
+    const end = _hmToMin(a.end_time);
+    if (start == null || end == null) return false;
+    const now = new Date().getHours() * 60 + new Date().getMinutes();
+    if (end <= start) {
+      // cruza medianoche: rango [start, 1440) ∪ [0, end)
+      return now >= start || now < end;
+    }
+    return now >= start && now < end;
+  };
+
+  // Cargar y dibujar TODAS las rutas de patrulla guardadas
+  // Lógica (decisión McBarri): TODOS ven todas las rutas (el líder por control
+  // total y para ver cobertura; el sentinela también para saber dónde están los
+  // demás y si se está cubriendo la zona). La ruta asignada al usuario ACTUAL que
+  // esté ACTIVA en este momento se RESALTA; el resto se ven tenues.
+  const loadSavedRoutes = useCallback(async () => {
+    if (!token || !myId) return;
+    try {
+      const res = await fetch(`${API_BASE}/realtime/patrol-routes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setSavedRoutes(data);
+      if (!leafletRef.current) return;
+      const L = window.L;
+      savedRoutesLayerRef.current?.clearLayers();
+      (Array.isArray(data) ? data : []).forEach((r: any) => {
+        const pts: [number, number][] = (Array.isArray(r.points) ? r.points : []).map((p: any) =>
+          Array.isArray(p) && p.length >= 2 ? [Number(p[0]), Number(p[1])] : null
+        ).filter(Boolean);
+        if (pts.length < 2) return;
+        // ¿Es la ruta activa AHORA del usuario actual?
+        const mine = (Array.isArray(r.assignments) ? r.assignments : []).some(
+          (a: any) => Number(a.assigned_user_id) === myId && _isRouteActiveNow(a)
+        );
+        const color = mine ? "#00c2a8" : (r.user_id === myId ? "#3b82f6" : "#94a3b8");
+        const weight = mine ? 6 : 4;
+        const opacity = mine ? 1 : 0.65;
+        const line = L.polyline(pts, { color, weight, opacity, dashArray: mine ? null : "6 8" });
+        const extra = mine ? " ✅ (tu ruta activa ahora)" : "";
+        const infoLínea = (r.name || "Ruta") + extra;
+        line.bindTooltip(infoLínea, { permanent: mine, direction: "center", offset: L.point(0, -8) });
+        line.addTo(savedRoutesLayerRef.current);
+      });
+    } catch (e) {
+      /* noop */
+    }
+  }, [token, myId]);
   // Activar geolocalización continua
   useEffect(() => {
     if (!mapInit || !token) return;
@@ -416,6 +488,7 @@ export default function MapaClient() {
         } else if (msg.type === "update") {
           load();
           loadIncidents();
+          loadSavedRoutes();
         }
       } catch (e) {}
     };
@@ -434,6 +507,13 @@ export default function MapaClient() {
     });
   }, [routePoints]);
 
+  // Cargar todas las rutas guardadas cuando el mapa y el usuario están listos
+  useEffect(() => {
+    if (!mapInit || !myId) return;
+    loadSavedRoutes();
+  }, [mapInit, token, myId, loadSavedRoutes]);
+
+
   // Guardar ruta
   const saveRoute = async () => {
     if (routePoints.length < 2) return alert("Traza al menos 2 puntos en el mapa.");
@@ -448,6 +528,7 @@ export default function MapaClient() {
       setRouteName("");
       setDrawingRoute(false);
       routeLayerRef.current?.clearLayers();
+      loadSavedRoutes();
     } else {
       alert("Error al guardar la ruta.");
     }
