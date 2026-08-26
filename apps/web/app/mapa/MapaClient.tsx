@@ -77,6 +77,11 @@ export default function MapaClient() {
   const [routeName, setRouteName] = useState("");
   const [drawingRoute, setDrawingRoute] = useState(false);
 
+  // Filtro del panel de usuarios: "all" muestra todos, "active" solo los en línea
+  const [filterMode, setFilterMode] = useState<"all" | "active">("all");
+  // Cache de direcciones (geocodificación inversa Nominatim) por lat|lng redondeado
+  const addrCacheRef = useRef<Record<string, string>>({});
+
   // Estados walkie (push-to-talk): off | armed | talking
   const [walkieState, setWalkieState] = useState<"off" | "armed" | "talking">("off");
   // Quién está transmitiendo AHORA en el canal (lo ven todos). false = nadie habla,
@@ -270,18 +275,6 @@ export default function MapaClient() {
     [token]
   );
 
-  // Centrar el mapa en el usuario seleccionado y magnificarlo
-  const focusUser = useCallback(
-    (u: LiveUser) => {
-      if (!leafletRef.current || u.latitude == null || u.longitude == null) return;
-      leafletRef.current.setView([u.latitude, u.longitude], 17); // zoom máximo
-      // Abrir el popup del pin
-      const m = markersRef.current[u.user_id];
-      if (m) m.openPopup();
-    },
-    []
-  );
-
   // Centrar el mapa en TODOS los usuarios del vecindario (maximizar para verlos a todos)
   const fitAllUsers = useCallback(() => {
     const map = leafletRef.current;
@@ -376,6 +369,84 @@ export default function MapaClient() {
     return () => navigator.geolocation.clearWatch(id);
   }, [mapInit, token, publishLocation]);
 
+  // Pending de direcciones en vuelo (lat|lng -> true) para no duplicar peticiones
+  const addressPendingRef = useRef<Record<string, boolean>>({});
+
+  // Plantilla del contenido del globito (popup) de un pin. Dirección opcional:
+  // si llega vacía muestra "Buscando dirección…" y luego se reemplaza por la real.
+  const popupContent = (u: LiveUser, addr: string): string => {
+    const label = u.code ? u.code : u.role === "leader" ? "L" : "C";
+    const estado = u.online ? "🟢 En línea" : "⚪ Desconectado";
+    return `${label} · ${u.full_name ?? "Usuario"}${u.role ? " (" + u.role + ")" : ""}<br/>${estado}<br/>📍 <b>${
+      addr || "Buscando dirección…"
+    }</b><br/>Última conexión: ${u.updated_at ? new Date(u.updated_at).toLocaleString() : "nunca"}`;
+  };
+
+  // Geocodificación inversa open source (Nominatim/OpenStreetMap, gratis, sin API key,
+  // cobertura MUNDIAL: USA + Guatemala + RD + todo el mundo). Convierte lat/lng en la
+  // DIRECCIÓN real más cercana (ej: "110 Samuel Street, New York, NY"). Se cachea por
+  // coordenada redondeada a ~5 decimales (~1m) para no saturar el rate-limit (1 req/s)
+  // ni re-pedir si el usuario no se ha movido. Mientras llega el popup muestra
+  // "Buscando dirección…" y luego se actualiza solo.
+  const fetchAddress = useCallback(async (lat: number, lng: number): Promise<void> => {
+    const key = lat.toFixed(5) + "|" + lng.toFixed(5);
+    if (addrCacheRef.current[key] !== undefined || addressPendingRef.current[key]) return; // ya resuelta o en vuelo
+    addressPendingRef.current[key] = true;
+    let d = "";
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=es`;
+      const res = await fetch(url, { headers: { "User-Agent": "VecinoCentinela/1.0" } });
+      if (res.ok) {
+        const j = await res.json();
+        d = (j && j.display_name) || "";
+      }
+    } catch (e) {
+      /* noop */
+    }
+    // Resolver el popup de cualquier pin en esa coordenada que pueda estar visible
+    addrCacheRef.current[key] = d;
+    addressPendingRef.current[key] = false;
+    Object.values(markersRef.current).forEach((m: any) => {
+      try {
+        const ll = m.getLatLng && m.getLatLng();
+        if (ll && ll.lat.toFixed(5) === lat.toFixed(5) && ll.lng.toFixed(5) === lng.toFixed(5)) {
+          m.setContent(popupContent(m.__liveUser as LiveUser, d));
+          if (m.isPopupOpen()) m.openPopup();
+        }
+      } catch (e) {}
+    });
+  }, []);
+
+  // Abre el globito del pin y le inyecta la dirección real (geocodificación inversa).
+  // Úsala en lugar de m.openPopup() para que el globito muestre la calle/dirección.
+  const openPopupWithAddress = useCallback(
+    (u: LiveUser, m: any) => {
+      if (!m || u.latitude == null || u.longitude == null) return;
+      m.openPopup();
+      const key = u.latitude.toFixed(5) + "|" + u.longitude.toFixed(5);
+      const saved = addrCacheRef.current[key];
+      m.setContent(
+        popupContent(
+          u,
+          saved !== undefined ? saved : (addressPendingRef.current[key] ? "Buscando dirección…" : saved ?? "")
+        )
+      );
+      fetchAddress(u.latitude, u.longitude);
+    },
+    [fetchAddress]
+  );
+
+  // Centrar el mapa en el usuario seleccionado y magnificarlo (abriendo su globito con dirección)
+  const focusUser = useCallback(
+    (u: LiveUser) => {
+      if (!leafletRef.current || u.latitude == null || u.longitude == null) return;
+      leafletRef.current.setView([u.latitude, u.longitude], 17); // zoom máximo
+      const m = markersRef.current[u.user_id];
+      if (m) openPopupWithAddress(u, m);
+    },
+    [openPopupWithAddress]
+  );
+
   // Cargar posiciones de todos los usuarios + actualizar en vivo
   useEffect(() => {
     if (!token) return;
@@ -394,15 +465,17 @@ export default function MapaClient() {
           const L = window.L;
           const myId = JSON.parse(localStorage.getItem("user") || "{}").id;
           // Todos los usuarios del vecindario tienen pin (última posición conocida).
-          // Los que ya no existen en la respuesta se limpian.
-          const idsPresent = new Set(data.map((u: any) => u.user_id));
+          // En modo "activos" solo se pintan los que están EN LÍNEA (on/off filtro).
+          const fil = filterMode === "active" ? data.filter((x: any) => x.online) : data;
+          // Los que ya no existen (o quedaron fuera del filtro) se limpian.
+          const idsPresent = new Set(fil.map((u: any) => u.user_id));
           Object.keys(markersRef.current).forEach((uid) => {
             if (!idsPresent.has(Number(uid))) {
               leafletRef.current?.removeLayer(markersRef.current[uid]);
               delete markersRef.current[uid];
             }
           });
-          data.forEach((u) => {
+          fil.forEach((u) => {
             if (u.user_id === undefined) return;
             const isMe = u.user_id === myId;
             // Color: YO = celeste · en línea según rol (líder verde, centinela azul) ·
@@ -423,9 +496,10 @@ export default function MapaClient() {
             // Si no tiene coordenadas aún, no lo pintamos en el mapa (solo tabla)
             if (u.latitude != null && u.longitude != null) {
               const m = L.marker([u.latitude, u.longitude], { icon });
-              const estado = u.online ? "🟢 En línea" : "⚪ Desconectado";
-              const poplabel = `${label} · ${u.full_name ?? "Usuario"}${u.role ? " (" + u.role + ")" : ""}<br/>${estado}<br/>Última conexión: ${u.updated_at ? new Date(u.updated_at).toLocaleString() : "nunca"}`;
-              m.bindPopup(poplabel);
+              m.__liveUser = u; // para reescribir el popup con la dirección al geocodificar
+              // El globito muestra la dirección real (Geocodificación inversa open source).
+              m.on("click", () => openPopupWithAddress(u, m));
+              m.bindTooltip(u.full_name || "Usuario", { direction: "top" });
               m.addTo(leafletRef.current);
               if (markersRef.current[u.user_id]) leafletRef.current.removeLayer(markersRef.current[u.user_id]);
               markersRef.current[u.user_id] = m;
@@ -493,7 +567,7 @@ export default function MapaClient() {
       } catch (e) {}
     };
     return () => ws.close();
-  }, [token, mapInit]);
+  }, [token, mapInit, filterMode, openPopupWithAddress]);
 
   // Redibujar ruta en el mapa
   useEffect(() => {
@@ -762,10 +836,28 @@ export default function MapaClient() {
 
       <div style={styles.panel}>
         <h3 onClick={fitAllUsers} title="Ver todos los usuarios en el mapa" style={{ ...styles.panelTitle, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>👥 Usuarios del vecindario ({liveUsers.length}) <span style={{ fontSize: 11, fontWeight: 600, color: "#2563eb" }}>Maximizar 🔍</span></h3>
-        {liveUsers.length === 0 ? (
+        {/* Conmutador: ver TODOS o solo los ACTIVOS (en línea ahora) */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <button
+            onClick={() => setFilterMode("all")}
+            style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: filterMode === "all" ? "#0f2f57" : "#e2e8f0", color: filterMode === "all" ? "#fff" : "#334155" }}
+          >
+            👥 Usuarios ({liveUsers.length})
+          </button>
+          <button
+            onClick={() => setFilterMode("active")}
+            style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: filterMode === "active" ? "#16a34a" : "#e2e8f0", color: filterMode === "active" ? "#fff" : "#334155" }}
+          >
+            🟢 Activos ({liveUsers.filter((x) => x.online).length})
+          </button>
+        </div>
+        {filterMode === "active" && liveUsers.filter((x) => x.online).length === 0 && (
+          <p style={{ color: "#94a3b8" }}>Nadie activo en este momento. Cambia a “Usuarios” para ver todas las posiciones registradas.</p>
+        )}
+        {(filterMode === "all" ? liveUsers : liveUsers.filter((x) => x.online)).length === 0 && filterMode === "all" ? (
           <p style={{ color: "#94a3b8" }}>No hay usuarios con ubicación registrada en tu vecindario.</p>
         ) : (
-          liveUsers.map((u) => {
+          (filterMode === "all" ? liveUsers : liveUsers.filter((x) => x.online)).map((u) => {
             const online = !!u.online;
             const conectable = u.latitude != null && u.longitude != null;
             return (
@@ -806,7 +898,7 @@ export default function MapaClient() {
           })
         )}
         <p style={{ fontSize: 12, color: "#64748b", marginBottom: 0 }}>
-          Los desconectados muestran su última posición en gris. Toca una fila para centrar el mapa en ese pin.
+          Toca una fila para centrar el mapa en ese pin. Toca el globito de un pin para ver su dirección real.
         </p>
       </div>
 
