@@ -244,15 +244,10 @@ export default function MapaClient() {
         leafletRef.current.setView([lat, lng], 15);
         leafletRef.current.__centeredOnMe = true;
       }
-      if (leafletRef.current) {
-        const L = window.L;
-        if (!markersRef.current["me"]) {
-          const icon = L.divIcon({ className: "", html: '<div style="width:16px;height:16px;border-radius:50%;background:#00c2a8;border:3px solid #fff;box-shadow:0 0 0 3px #00c2a8"></div>' });
-          markersRef.current["me"] = L.marker([lat, lng], { icon }).addTo(leafletRef.current);
-        } else {
-          markersRef.current["me"].setLatLng([lat, lng]);
-        }
-      }
+      // NOTA: NO creamos un marker "me" aquí. El pin propio ya lo dibuja el render
+      // de liveUsers (isMe) con su etiqueta (L2/C2), color #00c2a8 y popup.
+      // Antes existía un marker "me" duplicado (sin etiqueta) que se superponía
+      // al pin real y era el que "se movía solo" con watchPosition → doble bolita.
       try {
         if (!token) return;
         await fetch(`${API_BASE}/realtime/locations`, {
