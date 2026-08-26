@@ -187,22 +187,33 @@ export default function DashboardClient() {
   }, [token, router]);
 
   const load = useCallback(async () => {
+    // Cada llamada es tolerante a fallos por separado: un error de red transitorio
+    // en un endpoint NO debe tumbar todo el dashboard (evita el "failed to fetch"
+    // en pantalla completa sin datos). Solo /me decide expiración de sesión.
+    const safe = async (p: string, fallback: unknown) => {
+      try {
+        return await api(p);
+      } catch (e) {
+        if (e instanceof Error && e.message === "Sesión expirada") throw e; // propaga logout
+        return fallback;
+      }
+    };
     try {
       const [m, s, u, n, i, rr] = await Promise.all([
-        api("/me"),
-        api("/dashboard/summary"),
-        api("/users"),
-        api("/neighborhoods"),
-        api("/incidents"),
-        api("/realtime/patrol-routes").catch(() => []),
+        safe("/me", null),
+        safe("/dashboard/summary", null),
+        safe("/users", []),
+        safe("/neighborhoods", []),
+        safe("/incidents", []),
+        safe("/realtime/patrol-routes", []),
       ]);
-      setMe(m);
-      setSummary(s);
+      if (m) setMe(m);
+      if (s) setSummary(s);
       setUsers(u ?? []);
       setNeighborhoods(n ?? []);
       setIncidents(i ?? []);
       setRoutes(rr ?? []);
-      if (m.onboarding_complete === false && m.role !== "superadmin") {
+      if (m && m.onboarding_complete === false && m.role !== "superadmin") {
         router.push("/onboarding");
         return;
       }
