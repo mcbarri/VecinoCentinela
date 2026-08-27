@@ -410,7 +410,7 @@ export default function MapaClient() {
       try {
         const ll = m.getLatLng && m.getLatLng();
         if (ll && ll.lat.toFixed(5) === lat.toFixed(5) && ll.lng.toFixed(5) === lng.toFixed(5)) {
-          m.setContent(popupContent(m.__liveUser as LiveUser, d));
+          const _p = m.getPopup && m.getPopup(); if (_p) _p.setContent(popupContent(m.__liveUser as LiveUser, d));
           if (m.isPopupOpen()) m.openPopup();
         }
       } catch (e) {}
@@ -425,12 +425,15 @@ export default function MapaClient() {
       m.openPopup();
       const key = u.latitude.toFixed(5) + "|" + u.longitude.toFixed(5);
       const saved = addrCacheRef.current[key];
-      m.setContent(
-        popupContent(
-          u,
-          saved !== undefined ? saved : (addressPendingRef.current[key] ? "Buscando dirección…" : saved ?? "")
-        )
-      );
+      const _p = m.getPopup && m.getPopup();
+      if (_p) {
+        _p.setContent(
+          popupContent(
+            u,
+            saved !== undefined ? saved : (addressPendingRef.current[key] ? "Buscando dirección…" : saved ?? "")
+          )
+        );
+      }
       fetchAddress(u.latitude, u.longitude);
     },
     [fetchAddress]
@@ -500,6 +503,9 @@ export default function MapaClient() {
               // El globito muestra la dirección real (Geocodificación inversa open source).
               m.on("click", () => openPopupWithAddress(u, m));
               m.bindTooltip(u.full_name || "Usuario", { direction: "top" });
+              // Vincular el popup desde el inicio (placeholder); openPopupWithAddress lo
+              // reescribe con la dirección resuelta vía getPopup().setContent(...)
+              m.bindPopup(popupContent(u, ""), { autoPan: false });
               m.addTo(leafletRef.current);
               if (markersRef.current[u.user_id]) leafletRef.current.removeLayer(markersRef.current[u.user_id]);
               markersRef.current[u.user_id] = m;
