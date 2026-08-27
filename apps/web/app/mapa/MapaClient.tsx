@@ -502,7 +502,9 @@ export default function MapaClient() {
               m.__liveUser = u; // para reescribir el popup con la dirección al geocodificar
               // El globito muestra la dirección real (Geocodificación inversa open source).
               m.on("click", () => openPopupWithAddress(u, m));
-              m.bindTooltip(u.full_name || "Usuario", { direction: "top" });
+              // Tooltip rápido al pasar el cursor: nombre + estado (para que no quede solo el nombre).
+              // La info COMPLETA (dirección, fecha/hora) va en el POPUP al tocar el pin.
+              m.bindTooltip((u.full_name || "Usuario") + (u.online ? " 🟢" : " ⚪"), { direction: "top" });
               // Vincular el popup desde el inicio (placeholder); openPopupWithAddress lo
               // reescribe con la dirección resuelta vía getPopup().setContent(...)
               m.bindPopup(popupContent(u, ""), { autoPan: false });
