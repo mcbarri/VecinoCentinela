@@ -276,10 +276,10 @@ export default function MapaClient() {
   );
 
   // Centrar el mapa en TODOS los usuarios del vecindario (maximizar para verlos a todos)
-  const fitAllUsers = useCallback(() => {
+  const fitUsers = useCallback((users: LiveUser[]) => {
     const map = leafletRef.current;
     if (!map) return;
-    const pts: [number, number][] = liveUsers
+    const pts: [number, number][] = users
       .filter((u) => u.latitude != null && u.longitude != null)
       .map((u) => [u.latitude as number, u.longitude as number]);
     if (pts.length === 0) return;
@@ -288,7 +288,15 @@ export default function MapaClient() {
     } else {
       map.fitBounds(pts, { padding: [60, 60], maxZoom: 16 });
     }
-  }, [liveUsers]);
+  }, []);
+
+  const fitAllUsers = useCallback(() => {
+    fitUsers(liveUsers);
+  }, [fitUsers, liveUsers]);
+
+  const fitFilteredUsers = useCallback((users: LiveUser[]) => {
+    fitUsers(users);
+  }, [fitUsers]);
 
   // ── Utilidades de día/hora para saber si una ruta está ACTIVA ahora ──
   const _hmToMin = (t?: string): number | null => {
@@ -847,13 +855,13 @@ export default function MapaClient() {
         {/* Conmutador: ver TODOS o solo los ACTIVOS (en línea ahora) */}
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <button
-            onClick={() => setFilterMode("all")}
+            onClick={() => { setFilterMode("all"); fitAllUsers(); }}
             style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: filterMode === "all" ? "#0f2f57" : "#e2e8f0", color: filterMode === "all" ? "#fff" : "#334155" }}
           >
             👥 Usuarios ({liveUsers.length})
           </button>
           <button
-            onClick={() => setFilterMode("active")}
+            onClick={() => { setFilterMode("active"); fitFilteredUsers(liveUsers.filter((x) => x.online)); }}
             style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: filterMode === "active" ? "#16a34a" : "#e2e8f0", color: filterMode === "active" ? "#fff" : "#334155" }}
           >
             🟢 Activos ({liveUsers.filter((x) => x.online).length})
